@@ -71,6 +71,7 @@ static const int STAR_PICKUP_GENERIC_ITEM = 9001;
 static std::string g_star_pending_item_name;
 static std::string g_star_pending_item_desc;
 static std::string g_star_pending_item_type;
+static int g_star_pending_item_amount = 1;
 static bool g_star_has_pending_item = false;
 static std::string g_star_last_pickup_name;
 static std::string g_star_last_pickup_type;
@@ -811,6 +812,24 @@ static bool EqualsNoCase(const std::string& a, const std::string& b) {
 	return true;
 }
 
+/** Hardcoded Doom ammo pickup amounts for demo (from doomammo.zs / Doom Wiki). Returns 0 to use default 1. */
+static int GetHardcodedAmmoAmount(const char* className) {
+	if (!className || !className[0]) return 0;
+	/* Bullets */
+	if (strstr(className, "ClipBox") || strstr(className, "BoxOfBullets")) return 50;
+	if (strstr(className, "Clip") || strstr(className, "Bullet")) return 10;
+	/* Shells */
+	if (strstr(className, "ShellBox") || strstr(className, "BoxOfShells")) return 20;
+	if (strstr(className, "Shell") && !strstr(className, "Shotgun")) return 4;
+	/* Rockets */
+	if (strstr(className, "RocketBox") || strstr(className, "BoxOfRockets")) return 5;
+	if (strstr(className, "Rocket")) return 1;
+	/* Cells */
+	if (strstr(className, "CellPack") || strstr(className, "BulkCell")) return 100;
+	if (strstr(className, "Cell")) return 20;
+	return 0;
+}
+
 /** Map Doom class name to short display/API name (game shown in brackets in UI). Same pattern as OQuake. */
 static std::string ToStarItemName(const char* className) {
 	if (!className || !className[0]) return "Item";
@@ -1059,6 +1078,12 @@ static bool StarTryInitializeAndAuthenticate(bool verbose) {
 		g_star_client_ready = true;
 		g_star_init_failed_this_session = false;
 		if (logVerbose) StarLogInfo("star_api_init succeeded (interop DLL/API ready).");
+		/* NFT minting and avatar auth use WEB4 OASIS API; set from oasis_api_url (oasisstar.json) so mint goes to WEB4 not WEB5. */
+		const char* oasis_url = (const char*)odoom_oasis_api_url;
+		if (HasValue(oasis_url)) {
+			star_api_set_oasis_base_url(oasis_url);
+			if (logVerbose) StarLogInfo("WEB4 OASIS API URL set to: %s (for mint/auth).", oasis_url);
+		}
 	}
 
 	const char* username = g_star_effective_username.empty() ? nullptr : g_star_effective_username.c_str();
@@ -1220,8 +1245,13 @@ int UZDoom_STAR_PreTouchSpecial(struct AActor* special) {
 		g_star_pending_item_name = ToStarItemName(cls);
 		g_star_pending_item_desc = std::string("Picked up ") + (cls ? cls : "Item");
 		g_star_pending_item_type = type;
+		/* Hardcoded ammo amounts for demo (Doom standard: Clip=10, ClipBox=50, Shell=4, ShellBox=20, etc.). */
+		{
+			int amt = GetHardcodedAmmoAmount(cls);
+			g_star_pending_item_amount = (amt > 0) ? amt : 1;
+		}
 		g_star_has_pending_item = true;
-		StarLogInfo("Pickup detected: %s (type=%s).", cls ? cls : "Inventory", type);
+		StarLogInfo("Pickup detected: %s (type=%s, amount=%d).", cls ? cls : "Inventory", type, g_star_pending_item_amount);
 		return STAR_PICKUP_GENERIC_ITEM;
 	}
 
@@ -1270,15 +1300,18 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 		if (mintRes == STAR_API_SUCCESS && nft_id_buf[0]) {
 			nft_id_arg = nft_id_buf;
 			if (hash_buf[0])
-				Printf(PRINT_HIGH, "STAR API: NFT minted for \"%s\". NFT ID: %s, Hash: %s\n", name, nft_id_buf, hash_buf);
+				Printf(PRINT_HIGH, "WEB4 OASIS API: NFT minted for \"%s\". NFT ID: %s, Hash: %s\n", name, nft_id_buf, hash_buf);
 			else
-				Printf(PRINT_HIGH, "STAR API: NFT minted for \"%s\". NFT ID: %s\n", name, nft_id_buf);
+				Printf(PRINT_HIGH, "WEB4 OASIS API: NFT minted for \"%s\". NFT ID: %s\n", name, nft_id_buf);
 		} else {
 			const char* err = star_api_get_last_error();
-			Printf(PRINT_HIGH, "STAR API: Mint NFT failed for \"%s\": %s\n", name, err && err[0] ? err : "unknown error");
+			Printf(PRINT_HIGH, "WEB4 OASIS API: Mint NFT failed for \"%s\": %s\n", name, err && err[0] ? err : "unknown error");
 		}
 	}
-	star_api_queue_add_item(name, desc, "ODOOM", itemType ? itemType : "KeyItem", nft_id_arg, 1, 1);
+	int qty = 1;
+	if (keynum == STAR_PICKUP_GENERIC_ITEM && g_star_has_pending_item)
+		qty = (g_star_pending_item_amount > 0) ? g_star_pending_item_amount : 1;
+	star_api_queue_add_item(name, desc, "ODOOM", itemType ? itemType : "KeyItem", nft_id_arg, qty, 1);
 	g_star_last_pickup_name = name;
 	g_star_last_pickup_type = itemType;
 	g_star_last_pickup_desc = desc;
@@ -1298,6 +1331,7 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 		g_star_pending_item_name.clear();
 		g_star_pending_item_desc.clear();
 		g_star_pending_item_type.clear();
+		g_star_pending_item_amount = 1;
 	}
 }
 
@@ -1312,8 +1346,7 @@ int UZDoom_STAR_CheckDoorAccess(struct AActor* owner, int keynum, int remote) {
 	if (!keyname) return 0;
 
 	if (star_api_has_item(keyname)) {
-		StarLogInfo("Door access granted via shared inventory key: %s", keyname);
-		/* Use item on API from background thread; overlay refresh in ODOOM_OnUseItemDone. */
+		/* Consume the keycard when opening this door (not on beam-in; only when door is actually opened). */
 		star_sync_use_item_start(keyname, "odoom_door", ODOOM_OnUseItemDone, nullptr);
 		return 1;
 	}
@@ -1332,10 +1365,10 @@ void UZDoom_STAR_OnBossKilled(const char* boss_name) {
 	std::snprintf(desc, sizeof(desc), "Boss defeated in ODOOM: %s", boss_name);
 	star_api_result_t r = star_api_create_boss_nft(boss_name, desc, "ODOOM", "{}", nft_id);
 	if (r == STAR_API_SUCCESS && nft_id[0])
-		Printf(PRINT_HIGH, "STAR API: Boss NFT created for \"%s\". ID: %s\n", boss_name, nft_id);
+		Printf(PRINT_HIGH, "WEB4 OASIS API: Boss NFT created for \"%s\". ID: %s\n", boss_name, nft_id);
 	else if (r != STAR_API_SUCCESS) {
 		const char* err = star_api_get_last_error();
-		Printf(PRINT_HIGH, "STAR API: Boss NFT failed for \"%s\": %s\n", boss_name, err && err[0] ? err : "unknown");
+		Printf(PRINT_HIGH, "WEB4 OASIS API: Boss NFT failed for \"%s\": %s\n", boss_name, err && err[0] ? err : "unknown");
 	}
 }
 
@@ -1810,9 +1843,11 @@ CCMD(star)
 	}
 	if (strcmp(sub, "setoasisurl") == 0) {
 		if (argv.argc() < 3) { Printf("Usage: star setoasisurl <oasis_api_url>\n"); return; }
-		odoom_oasis_api_url = argv[2];
-		ODOOM_SaveStarConfigToFiles();
-		Printf("OASIS API URL set to: %s. Config saved.\n", argv[2]);
+			odoom_oasis_api_url = argv[2];
+			if (g_star_client_ready)
+				star_api_set_oasis_base_url(argv[2]);
+			ODOOM_SaveStarConfigToFiles();
+			Printf("OASIS API URL set to: %s. Config saved.\n", argv[2]);
 		return;
 	}
 	if (strcmp(sub, "reloadconfig") == 0) {
