@@ -18,6 +18,12 @@ star_api_result_t star_api_send_item_to_avatar(const char* target_username_or_av
 star_api_result_t star_api_send_item_to_clan(const char* clan_name_or_target, const char* item_name, int quantity, const char* item_id);
 }
 #endif
+#ifndef STAR_API_HAS_QUEUE_PICKUP_WITH_MINT
+/* Forward declare when star_api.h is old or from a tree that lacks it. Link with updated star_api.lib. */
+extern "C" {
+void star_api_queue_pickup_with_mint(const char* item_name, const char* description, const char* game_source, const char* item_type, int do_mint, const char* provider, const char* send_to_address_after_minting, int quantity);
+}
+#endif
 #include "star_sync.h"
 #include "odoom_branding.h"
 
@@ -112,6 +118,7 @@ CVAR(Int, odoom_star_mint_armor, 0, CVAR_GLOBALCONFIG)
 CVAR(Int, odoom_star_mint_powerups, 0, CVAR_GLOBALCONFIG)
 CVAR(Int, odoom_star_mint_keys, 0, CVAR_GLOBALCONFIG)
 CVAR(String, odoom_star_nft_provider, "SolanaOASIS", CVAR_GLOBALCONFIG)
+CVAR(String, odoom_star_send_to_address_after_minting, "", CVAR_GLOBALCONFIG)
 
 /* Config: ODOOM stores STAR options in the engine config. Typical path: Documents\\My Games\\UZDoom
  * (or OneDrive\\Documents\\My Games\\UZDoom) - ini file there is written on exit. STAR cvars use
@@ -123,6 +130,11 @@ static int g_odoom_reapply_json_frames = -1;
 
 /** When init (e.g. star_api_init) has failed, we skip retrying until user runs beamin again to avoid spamming "couldn't find the host". */
 static bool g_star_init_failed_this_session = false;
+
+/** Frames since beam-in (or STAR became initialized). Used to avoid consuming keycards when the engine probes door access on load/beamin. */
+static int g_star_frames_since_beamin = 99999;
+/** Grace period in frames (~5 s at 60 fps): do not consume key when opening door during this time so keys are not lost on boot/beamin. */
+static const int STAR_DOOR_CONSUME_GRACE_FRAMES = 300;
 
 /* Inventory overlay: when open, temporarily clear key bindings (OQuake-style) so arrows/keys only drive the popup.
  * We read raw key state here and set odoom_key_* CVars so ZScript can drive selection/use/send/tabs. */
@@ -254,6 +266,10 @@ static bool ODOOM_LoadJsonConfig(const char* json_path) {
 		odoom_star_nft_provider = value;
 		loaded = true;
 	}
+	if (ODOOM_ExtractJsonValue(json, "send_to_address_after_minting", value, (int)sizeof(value))) {
+		odoom_star_send_to_address_after_minting = value;
+		loaded = true;
+	}
 	if (loaded) {
 		/* Apply mint and nft_provider to engine cvars so they persist (ini may have loaded 0 before this). */
 		UCVarValue u;
@@ -265,6 +281,11 @@ static bool ODOOM_LoadJsonConfig(const char* json_path) {
 		v = FindCVar("odoom_star_nft_provider", nullptr);
 		if (v && v->GetRealType() == CVAR_String) {
 			UCVarValue vs; vs.String = (char*)(const char*)odoom_star_nft_provider;
+			v->SetGenericRep(vs, CVAR_String);
+		}
+		v = FindCVar("odoom_star_send_to_address_after_minting", nullptr);
+		if (v && v->GetRealType() == CVAR_String) {
+			UCVarValue vs; vs.String = (char*)(const char*)odoom_star_send_to_address_after_minting;
 			v->SetGenericRep(vs, CVAR_String);
 		}
 	}
@@ -295,6 +316,16 @@ static bool ODOOM_SaveJsonConfig(const char* json_path) {
 		for (; *prov; prov++) {
 			if (*prov == '"' || *prov == '\\') fputc('\\', f);
 			fputc((unsigned char)*prov, f);
+		}
+		fprintf(f, "\",\n");
+	}
+	{
+		const char* send_addr = (const char*)odoom_star_send_to_address_after_minting;
+		if (!send_addr) send_addr = "";
+		fprintf(f, "  \"send_to_address_after_minting\": \"");
+		for (; *send_addr; send_addr++) {
+			if (*send_addr == '"' || *send_addr == '\\') fputc('\\', f);
+			fputc((unsigned char)*send_addr, f);
 		}
 		fprintf(f, "\"\n");
 	}
@@ -426,6 +457,7 @@ static void ODOOM_OnAuthDone(void* user_data) {
 	g_star_async_auth_pending = false;
 	if (success) {
 		g_star_initialized = true;
+		g_star_frames_since_beamin = 0;  /* Grace period: don't consume keys on door checks for a few seconds after beamin. */
 		g_star_logged_runtime_auth_failure = false;
 		g_star_logged_missing_auth_config = false;
 		g_star_effective_username = username_buf;
@@ -486,6 +518,9 @@ static void ODOOM_OnUseItemDone(void* user_data) {
 void ODOOM_InventoryInputCaptureFrame(void)
 {
 	star_sync_pump();
+
+	if (g_star_frames_since_beamin < STAR_DOOR_CONSUME_GRACE_FRAMES)
+		g_star_frames_since_beamin++;
 
 	/* Re-apply oasisstar.json after a short delay so mint etc. override ini load. */
 	if (g_odoom_reapply_json_frames == 0) {
@@ -1284,39 +1319,30 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 	}
 	if (!name || !desc) return;
 
-	/* Minimal hook: queue pickup to C# client; client manages delta and sync. */
-	char nft_id_buf[128] = {};
-	char hash_buf[128] = {};
-	char* nft_id_arg = nullptr;
+	/* C# client does all heavy lifting: queue pickup (mint if enabled, then add_item) or queue add_item only. */
 	bool isKey = (keynum >= 1 && keynum <= 4) || keynum == STAR_PICKUP_OQUAKE_GOLD_KEY || keynum == STAR_PICKUP_OQUAKE_SILVER_KEY;
 	bool isWeapon = itemType && (strstr(itemType, "Weapon") != nullptr || strstr(itemType, "weapon") != nullptr);
 	bool isArmor = itemType && (strstr(itemType, "Armor") != nullptr || strstr(itemType, "armor") != nullptr);
 	bool isPowerup = itemType && (strstr(itemType, "owerup") != nullptr || strstr(itemType, "Health") != nullptr);
 	bool doMint = (isKey && odoom_star_mint_keys) || (isWeapon && odoom_star_mint_weapons) || (isArmor && odoom_star_mint_armor) || (isPowerup && odoom_star_mint_powerups);
-	if (doMint) {
-		const char* provider = (const char*)odoom_star_nft_provider;
-		if (!provider || !provider[0]) provider = "SolanaOASIS";
-		star_api_result_t mintRes = star_api_mint_inventory_nft(name, desc, "ODOOM", itemType ? itemType : "Item", provider, nft_id_buf, hash_buf);
-		if (mintRes == STAR_API_SUCCESS && nft_id_buf[0]) {
-			nft_id_arg = nft_id_buf;
-			if (hash_buf[0])
-				Printf(PRINT_HIGH, "WEB4 OASIS API: NFT minted for \"%s\". NFT ID: %s, Hash: %s\n", name, nft_id_buf, hash_buf);
-			else
-				Printf(PRINT_HIGH, "WEB4 OASIS API: NFT minted for \"%s\". NFT ID: %s\n", name, nft_id_buf);
-		} else {
-			const char* err = star_api_get_last_error();
-			Printf(PRINT_HIGH, "WEB4 OASIS API: Mint NFT failed for \"%s\": %s\n", name, err && err[0] ? err : "unknown error");
-		}
-	}
 	int qty = 1;
 	if (keynum == STAR_PICKUP_GENERIC_ITEM && g_star_has_pending_item)
 		qty = (g_star_pending_item_amount > 0) ? g_star_pending_item_amount : 1;
-	star_api_queue_add_item(name, desc, "ODOOM", itemType ? itemType : "KeyItem", nft_id_arg, qty, 1);
+	const char* provider = (const char*)odoom_star_nft_provider;
+	if (!provider || !provider[0]) provider = "SolanaOASIS";
+	const char* send_to_addr = (const char*)odoom_star_send_to_address_after_minting;
+	if (send_to_addr && !send_to_addr[0]) send_to_addr = nullptr;
+
 	g_star_last_pickup_name = name;
 	g_star_last_pickup_type = itemType;
 	g_star_last_pickup_desc = desc;
 	g_star_has_last_pickup = true;
-	/* Auto-complete matching quest objective (WEB5 STAR Quest API). */
+	if (doMint)
+		star_api_queue_pickup_with_mint(name, desc, "ODOOM", itemType ? itemType : "KeyItem", 1, provider, send_to_addr, qty);
+	else
+		star_api_queue_add_item(name, desc, "ODOOM", itemType ? itemType : "KeyItem", nullptr, qty, 1);
+
+	/* Quest objective completion (fire-and-forget; no callback needed). */
 	static const char ODOOM_DEFAULT_QUEST_ID[] = "cross_dimensional_keycard_hunt";
 	if (keynum >= 1 && keynum <= 3) {
 		const char* obj = (keynum == 1) ? "doom_red_keycard" : (keynum == 2) ? "doom_blue_keycard" : "doom_yellow_keycard";
@@ -1326,6 +1352,7 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 	} else if (keynum == STAR_PICKUP_OQUAKE_GOLD_KEY) {
 		star_api_complete_quest_objective(ODOOM_DEFAULT_QUEST_ID, "quake_gold_key", "ODOOM");
 	}
+
 	if (keynum == STAR_PICKUP_GENERIC_ITEM) {
 		g_star_has_pending_item = false;
 		g_star_pending_item_name.clear();
@@ -1346,8 +1373,10 @@ int UZDoom_STAR_CheckDoorAccess(struct AActor* owner, int keynum, int remote) {
 	if (!keyname) return 0;
 
 	if (star_api_has_item(keyname)) {
-		/* Consume the keycard when opening this door (not on beam-in; only when door is actually opened). */
-		star_sync_use_item_start(keyname, "odoom_door", ODOOM_OnUseItemDone, nullptr);
+		/* Consume the keycard only when the player actually opens the door. During the grace period after
+		 * beam-in or game start, the engine may probe door access (e.g. on map load); do not consume then. */
+		if (g_star_frames_since_beamin >= STAR_DOOR_CONSUME_GRACE_FRAMES)
+			star_sync_use_item_start(keyname, "odoom_door", ODOOM_OnUseItemDone, nullptr);
 		return 1;
 	}
 
@@ -1363,7 +1392,8 @@ void UZDoom_STAR_OnBossKilled(const char* boss_name) {
 	char nft_id[128] = {};
 	char desc[256];
 	std::snprintf(desc, sizeof(desc), "Boss defeated in ODOOM: %s", boss_name);
-	star_api_result_t r = star_api_create_boss_nft(boss_name, desc, "ODOOM", "{}", nft_id);
+	const char* prov = (const char*)odoom_star_nft_provider;
+	star_api_result_t r = star_api_create_boss_nft(boss_name, desc, "ODOOM", "{}", prov && prov[0] ? prov : nullptr, nft_id);
 	if (r == STAR_API_SUCCESS && nft_id[0])
 		Printf(PRINT_HIGH, "WEB4 OASIS API: Boss NFT created for \"%s\". ID: %s\n", boss_name, nft_id);
 	else if (r != STAR_API_SUCCESS) {
@@ -1609,7 +1639,8 @@ CCMD(star)
 		const char* name = argv[2];
 		const char* desc = argv.argc() > 3 ? argv[3] : "Boss from UZDoom";
 		char nft_id[64] = {};
-		star_api_result_t r = star_api_create_boss_nft(name, desc, "ODOOM", "{}", nft_id);
+		const char* prov = (const char*)odoom_star_nft_provider;
+		star_api_result_t r = star_api_create_boss_nft(name, desc, "ODOOM", "{}", prov && prov[0] ? prov : nullptr, nft_id);
 		if (r == STAR_API_SUCCESS) Printf("Boss NFT created. ID: %s\n", nft_id[0] ? nft_id : "(none)");
 		else Printf("Failed: %s\n", star_api_get_last_error());
 		return;
@@ -1678,6 +1709,7 @@ CCMD(star)
 		// username=anorak password=test! enables custom HUD face.
 		if (IsMockAnorakCredentials(g_star_override_username, g_star_override_password)) {
 			g_star_initialized = true;
+			g_star_frames_since_beamin = 0;
 			g_star_logged_runtime_auth_failure = false;
 			g_star_logged_missing_auth_config = false;
 			g_star_effective_username = "anorak";
@@ -1772,6 +1804,7 @@ CCMD(star)
 		Printf("    mint_powerups: %s\n", odoom_star_mint_powerups ? "1" : "0");
 		Printf("    mint_keys:     %s\n", odoom_star_mint_keys ? "1" : "0");
 		Printf("  NFT mint provider: %s\n", (const char*)odoom_star_nft_provider && ((const char*)odoom_star_nft_provider)[0] ? (const char*)odoom_star_nft_provider : "SolanaOASIS");
+		Printf("  Send to address after minting: %s\n", (const char*)odoom_star_send_to_address_after_minting && ((const char*)odoom_star_send_to_address_after_minting)[0] ? (const char*)odoom_star_send_to_address_after_minting : "(none)");
 		Printf("\n");
 		Printf("To set: star seturl <url>   star setoasisurl <url>\n");
 		Printf("        star stack <armor|weapons|powerups|keys> <0|1>\n");
