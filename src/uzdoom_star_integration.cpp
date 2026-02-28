@@ -24,6 +24,11 @@ extern "C" {
 void star_api_queue_pickup_with_mint(const char* item_name, const char* description, const char* game_source, const char* item_type, int do_mint, const char* provider, const char* send_to_address_after_minting, int quantity);
 }
 #endif
+#ifndef STAR_API_HAS_CONSUME_LAST_MINT
+extern "C" {
+int star_api_consume_last_mint_result(char* item_name_out, size_t item_name_size, char* nft_id_out, size_t nft_id_size, char* hash_out, size_t hash_size);
+}
+#endif
 #include "star_sync.h"
 #include "odoom_branding.h"
 
@@ -518,6 +523,19 @@ static void ODOOM_OnUseItemDone(void* user_data) {
 void ODOOM_InventoryInputCaptureFrame(void)
 {
 	star_sync_pump();
+
+	/* Show mint result in console when background pickup-with-mint completes (NFT ID + Hash). */
+	{
+		char item_buf[256] = {}, nft_buf[128] = {}, hash_buf[256] = {};
+		if (star_api_consume_last_mint_result(item_buf, sizeof(item_buf), nft_buf, sizeof(nft_buf), hash_buf, sizeof(hash_buf)))
+			Printf(PRINT_HIGH, "NFT minted: %s | ID: %s | Hash: %s\n", item_buf, nft_buf, hash_buf[0] ? hash_buf : "(none)");
+	}
+	/* Show any background errors (mint/add_item failure or pickup not queued) in console. */
+	{
+		char err_buf[512] = {};
+		if (star_api_consume_last_background_error(err_buf, sizeof(err_buf)))
+			Printf(PRINT_HIGH, "%s\n", err_buf);
+	}
 
 	if (g_star_frames_since_beamin < STAR_DOOR_CONSUME_GRACE_FRAMES)
 		g_star_frames_since_beamin++;
