@@ -39,6 +39,7 @@ int star_api_consume_last_mint_result(char* item_name_out, size_t item_name_size
 #include <string>
 #include <algorithm>
 #include <cctype>
+#include <map>
 #include <thread>
 #include <mutex>
 #include <atomic>
@@ -125,6 +126,16 @@ CVAR(Int, odoom_star_mint_keys, 0, CVAR_GLOBALCONFIG)
 CVAR(String, odoom_star_nft_provider, "SolanaOASIS", CVAR_GLOBALCONFIG)
 CVAR(String, odoom_star_send_to_address_after_minting, "", CVAR_GLOBALCONFIG)
 
+/** Per-monster mint flag: 1 = mint NFT when killed, 0 = off. Keys = monster class name (e.g. Cyberdemon). Loaded from oasisstar.json mint_monster_<Name>. Default 1 for all. */
+static std::map<std::string, int> g_odoom_mint_monster_flags;
+/** All known monster class names (Doom + OQuake). Used for config load/save and star config display. Default mint = 1 for each. */
+static const char* const ODOOM_MONSTER_NAMES[] = {
+	"ZombieMan", "ShotgunGuy", "ChaingunGuy", "Demon", "Spectre", "DoomImp", "Imp", "Cacodemon", "BaronOfHell", "HellKnight",
+	"LostSoul", "PainElemental", "Revenant", "Mancubus", "Arachnotron", "Archvile", "SpiderMastermind", "Cyberdemon",
+	"OQMonsterDog", "OQMonsterZombie", "OQMonsterDemon", "OQMonsterShambler", "OQMonsterGrunt", "OQMonsterFish", "OQMonsterOgre", "OQMonsterEnforcer", "OQMonsterSpawn", "OQMonsterKnight",
+	nullptr
+};
+
 /* Config: ODOOM stores STAR options in the engine config. Typical path: Documents\\My Games\\UZDoom
  * (or OneDrive\\Documents\\My Games\\UZDoom) - ini file there is written on exit. STAR cvars use
  * CVAR_ARCHIVE so they should appear in that ini; if not visible, use oasisstar.json (loaded/saved
@@ -140,6 +151,8 @@ static bool g_star_init_failed_this_session = false;
 static int g_star_frames_since_beamin = 99999;
 /** Do not consume key when opening door for this many frames (~5 s) after beam-in. */
 static const int STAR_DOOR_CONSUME_GRACE_FRAMES = 300;
+/** Set true in OnAuthDone when beam-in succeeds; next frame we refresh gold/silver key CVars once so they appear with Doom keycards. */
+static bool g_star_just_beamed_in = false;
 
 /* Inventory overlay: when open, temporarily clear key bindings (OQuake-style) so arrows/keys only drive the popup.
  * We read raw key state here and set odoom_key_* CVars so ZScript can drive selection/use/send/tabs. */
@@ -275,6 +288,16 @@ static bool ODOOM_LoadJsonConfig(const char* json_path) {
 		odoom_star_send_to_address_after_minting = value;
 		loaded = true;
 	}
+	/* Per-monster mint: mint_monster_<Name> = 0|1. Default 1 if key missing. */
+	for (int i = 0; ODOOM_MONSTER_NAMES[i]; i++) {
+		char key[128];
+		std::snprintf(key, sizeof(key), "mint_monster_%s", ODOOM_MONSTER_NAMES[i]);
+		if (ODOOM_ExtractJsonValue(json, key, value, (int)sizeof(value)))
+			g_odoom_mint_monster_flags[ODOOM_MONSTER_NAMES[i]] = (atoi(value) != 0) ? 1 : 0;
+		else
+			g_odoom_mint_monster_flags[ODOOM_MONSTER_NAMES[i]] = 1;  /* default 1 */
+		loaded = true;
+	}
 	if (loaded) {
 		/* Apply mint and nft_provider to engine cvars so they persist (ini may have loaded 0 before this). */
 		UCVarValue u;
@@ -332,7 +355,15 @@ static bool ODOOM_SaveJsonConfig(const char* json_path) {
 			if (*send_addr == '"' || *send_addr == '\\') fputc('\\', f);
 			fputc((unsigned char)*send_addr, f);
 		}
-		fprintf(f, "\"\n");
+		fprintf(f, "\",\n");
+	}
+	int nmonsters = 0;
+	while (ODOOM_MONSTER_NAMES[nmonsters]) nmonsters++;
+	for (int i = 0; i < nmonsters; i++) {
+		const char* name = ODOOM_MONSTER_NAMES[i];
+		auto it = g_odoom_mint_monster_flags.find(name);
+		int v = (it != g_odoom_mint_monster_flags.end()) ? it->second : 1;
+		fprintf(f, "  \"mint_monster_%s\": %d%s\n", name, v ? 1 : 0, (i < nmonsters - 1) ? "," : "");
 	}
 	fprintf(f, "}\n");
 	fclose(f);
@@ -383,7 +414,7 @@ static const size_t ODOOM_INVENTORY_CVAR_MAX_BYTES = 1024;
 static const size_t ODOOM_INVENTORY_WINDOW_ITEMS = 24;
 
 /** Tab indices matching ZScript TAB_KEYS etc. Used to filter items per tab. */
-static const int ODOOM_TAB_KEYS = 0, ODOOM_TAB_POWERUPS = 1, ODOOM_TAB_WEAPONS = 2, ODOOM_TAB_AMMO = 3, ODOOM_TAB_ARMOR = 4, ODOOM_TAB_ITEMS = 5;
+static const int ODOOM_TAB_KEYS = 0, ODOOM_TAB_POWERUPS = 1, ODOOM_TAB_WEAPONS = 2, ODOOM_TAB_AMMO = 3, ODOOM_TAB_ARMOR = 4, ODOOM_TAB_MONSTERS = 5, ODOOM_TAB_ITEMS = 6;
 
 /** Return true if item matches the given tab (same logic as ZScript IsStarItemInTab). */
 static bool ODOOM_ItemMatchesTab(const char* item_type, const char* name, int tab) {
@@ -398,10 +429,12 @@ static bool ODOOM_ItemMatchesTab(const char* item_type, const char* name, int ta
 	if (tab == ODOOM_TAB_WEAPONS) return contains(item_type, "Weapon");
 	if (tab == ODOOM_TAB_AMMO) return contains(item_type, "Ammo");
 	if (tab == ODOOM_TAB_ARMOR) return contains(item_type, "Armor");
+	if (tab == ODOOM_TAB_MONSTERS) return contains(item_type, "Monster") || (name && std::strstr(name, "[NFT]") != nullptr);
 	if (tab == ODOOM_TAB_ITEMS) {
 		return !containsKey(item_type) && !containsKey(name)
 			&& !contains(item_type, "Powerup") && !contains(item_type, "Weapon")
-			&& !contains(item_type, "Ammo") && !contains(item_type, "Armor");
+			&& !contains(item_type, "Ammo") && !contains(item_type, "Armor")
+			&& !contains(item_type, "Monster");
 	}
 	return true; /* unknown tab: show all */
 }
@@ -562,6 +595,7 @@ static void ODOOM_OnAuthDone(void* user_data) {
 	if (success) {
 		g_star_initialized = true;
 		g_star_frames_since_beamin = 0;  /* Grace period: don't consume keys on door checks for a few seconds after beamin. */
+		g_star_just_beamed_in = true;    /* Next frame: refresh gold/silver key CVars so OQ keys appear with Doom keycards. */
 		g_star_logged_runtime_auth_failure = false;
 		g_star_logged_missing_auth_config = false;
 		g_star_effective_username = username_buf;
@@ -664,6 +698,15 @@ void ODOOM_InventoryInputCaptureFrame(void)
 	if (open) {
 		ODOOM_RefreshOverlayFromClient();
 	} else if (g_star_initialized) {
+		/* First frame after beam-in: refresh gold/silver key CVars immediately so OQ keys appear with Doom keycards (no wait for console close). */
+		if (g_star_just_beamed_in) {
+			g_star_just_beamed_in = false;
+			star_item_list_t* list = nullptr;
+			if (star_api_get_inventory(&list) == STAR_API_SUCCESS && list) {
+				ODOOM_UpdateStarKeyHudCVars(list);
+				star_api_free_item_list(list);
+			}
+		}
 		/* When overlay closed, periodically refresh gold/silver key CVars so HUD shows OQuake keys after load.
 		 * Use 10 frames (~0.3 s) so keys appear soon after beam-in; C# client serves from cache. */
 		static int s_key_hud_frames = 0;
@@ -1640,6 +1683,36 @@ void UZDoom_STAR_OnBossKilled(const char* boss_name) {
 	}
 }
 
+static bool ODOOM_ShouldMintMonster(const char* monster_name) {
+	if (!monster_name || !monster_name[0]) return false;
+	auto it = g_odoom_mint_monster_flags.find(monster_name);
+	if (it != g_odoom_mint_monster_flags.end()) return it->second != 0;
+	/* Config not loaded yet: default 1 for known monsters */
+	for (int i = 0; ODOOM_MONSTER_NAMES[i]; i++)
+		if (strcmp(ODOOM_MONSTER_NAMES[i], monster_name) == 0) return true;
+	return false;
+}
+
+void UZDoom_STAR_OnMonsterKilled(const char* monster_name) {
+	if (!monster_name || !monster_name[0] || !g_star_initialized) return;
+	if (!ODOOM_ShouldMintMonster(monster_name)) return;
+	if (!StarTryInitializeAndAuthenticate(false)) return;
+	char nft_id[128] = {};
+	char desc[256];
+	std::snprintf(desc, sizeof(desc), "Monster defeated in ODOOM: %s", monster_name);
+	const char* prov = (const char*)odoom_star_nft_provider;
+	star_api_result_t r = star_api_create_boss_nft(monster_name, desc, "ODOOM", "{}", prov && prov[0] ? prov : nullptr, nft_id);
+	if (r != STAR_API_SUCCESS || !nft_id[0]) {
+		const char* err = star_api_get_last_error();
+		Printf(PRINT_HIGH, "WEB4 OASIS API: Monster NFT mint failed for \"%s\": %s\n", monster_name, err && err[0] ? err : "unknown");
+		return;
+	}
+	char display_name[256];
+	std::snprintf(display_name, sizeof(display_name), "[NFT] %s", monster_name);
+	star_api_queue_add_item(display_name, desc, "ODOOM", "Monster", nft_id, 1, 0);
+	Printf(PRINT_HIGH, "NFT minted: %s | ID: %s (added to inventory, Monsters tab)\n", display_name, nft_id);
+}
+
 //-----------------------------------------------------------------------------
 // STAR console command (star <subcmd> [args...]) for testing the STAR API
 //-----------------------------------------------------------------------------
@@ -1674,6 +1747,7 @@ CCMD(star)
 		Printf("  star config save   - Write config to oasisstar.json now (also saved on exit)\n");
 		Printf("  star stack <armor|weapons|powerups|keys> <0|1> - Stack (1) or unlock (0) per category\n");
 		Printf("  star mint <armor|weapons|powerups|keys> <0|1> - Mint NFT when collecting (1=on, 0=off)\n");
+		Printf("  star mint monster <MonsterName> <0|1> - Mint NFT when killing that monster (e.g. star mint monster Cacodemon 0)\n");
 		Printf("  star nftprovider <name> - Default NFT mint provider (e.g. SolanaOASIS)\n");
 		Printf("  star seturl <url>       - Set STAR API URL (saved to config)\n");
 		Printf("  star setoasisurl <url>  - Set OASIS API URL (saved to config)\n");
@@ -2041,21 +2115,54 @@ CCMD(star)
 		Printf("    mint_armor:    %s\n", odoom_star_mint_armor ? "1" : "0");
 		Printf("    mint_powerups: %s\n", odoom_star_mint_powerups ? "1" : "0");
 		Printf("    mint_keys:     %s\n", odoom_star_mint_keys ? "1" : "0");
+		Printf("  Mint NFT when killing monster (1=on, 0=off). Set: star mint monster <name> <0|1>\n");
+		for (int i = 0; ODOOM_MONSTER_NAMES[i]; i++) {
+			const char* name = ODOOM_MONSTER_NAMES[i];
+			auto it = g_odoom_mint_monster_flags.find(name);
+			int v = (it != g_odoom_mint_monster_flags.end()) ? it->second : 1;
+			Printf("    mint_monster_%s: %s\n", name, v ? "1" : "0");
+		}
 		Printf("  NFT mint provider: %s\n", (const char*)odoom_star_nft_provider && ((const char*)odoom_star_nft_provider)[0] ? (const char*)odoom_star_nft_provider : "SolanaOASIS");
 		Printf("  Send to address after minting: %s\n", (const char*)odoom_star_send_to_address_after_minting && ((const char*)odoom_star_send_to_address_after_minting)[0] ? (const char*)odoom_star_send_to_address_after_minting : "(none)");
 		Printf("\n");
 		Printf("To set: star seturl <url>   star setoasisurl <url>\n");
 		Printf("        star stack <armor|weapons|powerups|keys> <0|1>\n");
 		Printf("        star mint <armor|weapons|powerups|keys> <0|1>\n");
+		Printf("        star mint monster <MonsterName> <0|1>  (e.g. star mint monster Cacodemon 0)\n");
 		Printf("        star nftprovider <name>  (e.g. SolanaOASIS)\n");
 		Printf("To save now: star config save (also saved on exit)\n");
 		Printf("\n");
 		return;
 	}
 	if (strcmp(sub, "mint") == 0) {
+		/* star mint monster <Name> <0|1> */
+		if (argv.argc() >= 5 && strcmp(argv[2], "monster") == 0) {
+			const char* name_arg = argv[3];
+			const char* val = argv[4];
+			int on = (val[0] == '1' && val[1] == '\0') ? 1 : 0;
+			const char* canonical = nullptr;
+			for (int i = 0; ODOOM_MONSTER_NAMES[i]; i++) {
+				const char* m = ODOOM_MONSTER_NAMES[i];
+				size_t na = strlen(name_arg), nm = strlen(m);
+				if (na != nm) continue;
+				int match = 1;
+				for (size_t j = 0; j < na; j++)
+					if (tolower((unsigned char)name_arg[j]) != tolower((unsigned char)m[j])) { match = 0; break; }
+				if (match) { canonical = m; break; }
+			}
+			if (!canonical) {
+				Printf("Unknown monster: %s. Use star config to see list (e.g. Cacodemon, Cyberdemon, DoomImp).\n", name_arg);
+				return;
+			}
+			g_odoom_mint_monster_flags[canonical] = on;
+			ODOOM_SaveStarConfigToFiles();
+			Printf("Mint NFT for monster %s set to %s. Config saved.\n", canonical, on ? "on" : "off");
+			return;
+		}
 		if (argv.argc() < 4) {
 			Printf("Usage: star mint <armor|weapons|powerups|keys> <0|1>\n");
-			Printf("  1 = mint NFT when collecting that category, 0 = off. Default provider in star nftprovider.\n");
+			Printf("       star mint monster <MonsterName> <0|1>\n");
+			Printf("  1 = mint NFT when collecting/killing that category, 0 = off.\n");
 			return;
 		}
 		const char* cat = argv[2];
@@ -2066,7 +2173,7 @@ CCMD(star)
 		else if (strcmp(cat, "powerups") == 0) { odoom_star_mint_powerups = on; }
 		else if (strcmp(cat, "keys") == 0) { odoom_star_mint_keys = on; }
 		else {
-			Printf("Unknown category: %s. Use armor|weapons|powerups|keys.\n", cat);
+			Printf("Unknown category: %s. Use armor|weapons|powerups|keys or star mint monster <name> <0|1>.\n", cat);
 			return;
 		}
 		ODOOM_SaveStarConfigToFiles();

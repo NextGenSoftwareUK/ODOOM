@@ -327,8 +327,7 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags, FName MeansOf
 	if (player == nullptr && (flags3 & MF3_ISMONSTER))
 	{
 		FName tn = GetClass()->TypeName;
-		if (tn == NAME_Cyberdemon || tn == NAME_SpiderMastermind || tn == NAME_BaronOfHell)
-			UZDoom_STAR_OnBossKilled(tn.GetChars());
+		UZDoom_STAR_OnMonsterKilled(tn.GetChars());
 	}
 
 	// Check to see if unmorph Actors need to be killed as well. Originally this was always
