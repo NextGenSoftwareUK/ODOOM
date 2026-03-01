@@ -31,3 +31,7 @@ server int odoom_star_inventory_count = 0;
 server string odoom_star_inventory_list = "";
 
 server string odoom_send_status = "";
+
+server int odoom_star_inventory_scroll_offset = 0;
+
+server int odoom_star_inventory_tab = 0;
