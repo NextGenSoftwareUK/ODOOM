@@ -35,3 +35,8 @@ server string odoom_send_status = "";
 server int odoom_star_inventory_scroll_offset = 0;
 
 server int odoom_star_inventory_tab = 0;
+
+server int odoom_key_pgup = 0;
+server int odoom_key_pgdown = 0;
+server int odoom_key_home = 0;
+server int odoom_key_end = 0;
