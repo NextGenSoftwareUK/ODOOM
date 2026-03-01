@@ -494,10 +494,33 @@ static void ODOOM_PushInventoryToCVars(const star_item_list_t* list) {
 	listVar->SetGenericRep(v, CVAR_String);
 }
 
+/** Set odoom_star_has_gold_key / odoom_star_has_silver_key from inventory list so ZScript can give OQ keys for HUD. */
+static void ODOOM_UpdateStarKeyHudCVars(const star_item_list_t* list) {
+	int hasGold = 0, hasSilver = 0;
+	if (list && list->items) {
+		for (size_t i = 0; i < list->count; i++) {
+			const char* n = list->items[i].name;
+			if (!n) continue;
+			std::string lower;
+			for (const char* p = n; *p; ++p)
+				lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(*p == '_' ? ' ' : *p))));
+			if (lower.find("gold") != std::string::npos && (lower.find("key") != std::string::npos || lower.find("keycard") != std::string::npos))
+				hasGold = 1;
+			if (lower.find("silver") != std::string::npos && (lower.find("key") != std::string::npos || lower.find("keycard") != std::string::npos))
+				hasSilver = 1;
+		}
+	}
+	FBaseCVar* g = FindCVar("odoom_star_has_gold_key", nullptr);
+	FBaseCVar* s = FindCVar("odoom_star_has_silver_key", nullptr);
+	if (g && g->GetRealType() == CVAR_Int) { UCVarValue u; u.Int = hasGold; g->SetGenericRep(u, CVAR_Int); }
+	if (s && s->GetRealType() == CVAR_Int) { UCVarValue u; u.Int = hasSilver; s->SetGenericRep(u, CVAR_Int); }
+}
+
 /** Refresh overlay from client (get_inventory returns API + pending merged in C#). Call after send/use or when overlay is open so list stays in sync. */
 static void ODOOM_RefreshOverlayFromClient(void) {
 	star_item_list_t* list = nullptr;
 	if (star_api_get_inventory(&list) != STAR_API_SUCCESS || !list) return;
+	ODOOM_UpdateStarKeyHudCVars(list);
 	ODOOM_PushInventoryToCVars(list);
 	star_api_free_item_list(list);
 }
@@ -617,8 +640,20 @@ void ODOOM_InventoryInputCaptureFrame(void)
 	const bool open = (openVar && openVar->GetRealType() == CVAR_Int && openVar->GetGenericRep(CVAR_Int).Int != 0);
 
 	/* Refresh overlay from client every frame while open (merge is in-memory, so pickups show immediately). */
-	if (open)
+	if (open) {
 		ODOOM_RefreshOverlayFromClient();
+	} else if (g_star_initialized) {
+		/* When overlay closed, periodically refresh gold/silver key CVars so HUD shows OQuake keys after load. */
+		static int s_key_hud_frames = 0;
+		if (++s_key_hud_frames >= 70) {
+			s_key_hud_frames = 0;
+			star_item_list_t* list = nullptr;
+			if (star_api_get_inventory(&list) == STAR_API_SUCCESS && list) {
+				ODOOM_UpdateStarKeyHudCVars(list);
+				star_api_free_item_list(list);
+			}
+		}
+	}
 
 	if (open && !g_odoom_inventory_bindings_captured)
 	{
@@ -1284,18 +1319,58 @@ static const char* const* GetKeycardNameVariants(int keynum, int* outCount) {
 	}
 }
 
-/** Returns true if STAR inventory has this key (any name variant). If outName is non-null, set to the first matching variant for use_item. */
+/** Substrings (lowercase) that must appear in item name for each key. Fallback when variant has_item fails (e.g. API name differs). */
+static bool KeyNameContainsKeycard(int keynum, const char* itemName) {
+	if (!itemName || !itemName[0]) return false;
+	std::string lower;
+	for (const char* p = itemName; *p; ++p) {
+		char c = *p;
+		lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c == '_' ? ' ' : c))));
+	}
+	auto has = [&lower](const char* sub) {
+		std::string s(sub);
+		for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		return lower.find(s) != std::string::npos;
+	};
+	switch (keynum) {
+		case 1: return has("red") && (has("key") || has("keycard"));
+		case 2: return has("blue") && (has("key") || has("keycard"));
+		case 3: return has("yellow") && (has("key") || has("keycard"));
+		case 4: return has("skull") && has("key");
+		default: return false;
+	}
+}
+
+/** Returns true if STAR inventory has this key (any name variant). If outName is non-null, set to the first matching variant for use_item. Fallback: scan get_inventory when variants fail. */
 static bool ODOOM_STAR_HasKeycard(int keynum, const char** outName) {
 	int n = 0;
 	const char* const* names = GetKeycardNameVariants(keynum, &n);
-	if (!names || n <= 0) return false;
-	for (int i = 0; i < n; i++) {
-		if (star_api_has_item(names[i])) {
-			if (outName) *outName = names[i];
-			return true;
+	if (names && n > 0) {
+		for (int i = 0; i < n; i++) {
+			if (star_api_has_item(names[i])) {
+				if (outName) *outName = names[i];
+				return true;
+			}
 		}
 	}
-	return false;
+	/* Fallback: get full inventory and match by name content (handles "Red Keycard (ODOOM)" etc.) */
+	star_item_list_t* list = nullptr;
+	if (star_api_get_inventory(&list) != STAR_API_SUCCESS || !list || !list->items) return false;
+	static char matched_name[256];
+	matched_name[0] = '\0';
+	bool found = false;
+	for (size_t i = 0; i < list->count; i++) {
+		const star_item_t* it = &list->items[i];
+		if (KeyNameContainsKeycard(keynum, it->name)) {
+			std::strncpy(matched_name, it->name, sizeof(matched_name) - 1);
+			matched_name[sizeof(matched_name) - 1] = '\0';
+			found = true;
+			break;
+		}
+	}
+	star_api_free_item_list(list);
+	if (found && outName) *outName = matched_name;
+	return found;
 }
 
 static const char* GetKeycardDescription(int keynum) {
