@@ -45,3 +45,5 @@ server int odoom_star_has_gold_key = 0;
 server int odoom_star_has_silver_key = 0;
 
 server int odoom_star_beamed_in = 0;
+
+server int odoom_star_avatar_xp = 0;
