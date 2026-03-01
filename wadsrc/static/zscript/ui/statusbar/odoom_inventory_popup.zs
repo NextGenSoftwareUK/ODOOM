@@ -708,7 +708,9 @@ class OASISInventoryOverlayHandler : EventHandler
 			y += 16;
 		}
 
-		screen.DrawText(f, Font.CR_DARKGRAY, -16, 156, "PgUp/PgDn=Page Home=Top End=Bottom", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
+		String keyLine2 = "PgUp/PgDn=Page Home=Top End=Bottom";
+		int keyLine2X = 160 - (f.StringWidth(keyLine2) / 2);
+		screen.DrawText(f, Font.CR_DARKGRAY, keyLine2X, 156, keyLine2, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 		}
 
 		// Send popup overlay (OQuake-style): show Sending... / Item sent. / Send failed like Quake

@@ -491,7 +491,11 @@ int P_CheckKeys (AActor *owner, int keynum, bool remote, bool quiet)
 	{
 		if (lock->check(owner)) return true;
 #ifdef OASIS_STAR_API
-	if (!quiet && UZDoom_STAR_CheckDoorAccess(owner, keynum, remote)) return true;
+	if (quiet) {
+		if (UZDoom_STAR_PlayerHasKey(keynum)) return true;
+	} else {
+		if (UZDoom_STAR_CheckDoorAccess(owner, keynum, remote)) return true;
+	}
 #endif
 	if (quiet) return false;
 		failtext = remote? lock->RemoteMsg.GetChars() : lock->Message.GetChars();

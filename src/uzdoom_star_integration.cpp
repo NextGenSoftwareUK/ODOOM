@@ -1268,6 +1268,36 @@ static const char* GetKeycardName(int keynum) {
 	}
 }
 
+/** Name variants that the API or other games might store (e.g. "red_keycard"). Used so door check and HUD find keys regardless of name format. */
+static const char* const* GetKeycardNameVariants(int keynum, int* outCount) {
+	static const char* red[] = { "Red Keycard", "red_keycard", "Red keycard" };
+	static const char* blue[] = { "Blue Keycard", "blue_keycard", "Blue keycard" };
+	static const char* yellow[] = { "Yellow Keycard", "yellow_keycard", "Yellow keycard" };
+	static const char* skull[] = { "Skull Key", "skull_key", "Skull key" };
+	*outCount = 3;
+	switch (keynum) {
+		case 1: return red;
+		case 2: return blue;
+		case 3: return yellow;
+		case 4: return skull;
+		default: *outCount = 0; return nullptr;
+	}
+}
+
+/** Returns true if STAR inventory has this key (any name variant). If outName is non-null, set to the first matching variant for use_item. */
+static bool ODOOM_STAR_HasKeycard(int keynum, const char** outName) {
+	int n = 0;
+	const char* const* names = GetKeycardNameVariants(keynum, &n);
+	if (!names || n <= 0) return false;
+	for (int i = 0; i < n; i++) {
+		if (star_api_has_item(names[i])) {
+			if (outName) *outName = names[i];
+			return true;
+		}
+	}
+	return false;
+}
+
 static const char* GetKeycardDescription(int keynum) {
 	switch (keynum) {
 		case 1: return "Red Keycard - Opens red doors";
@@ -1470,20 +1500,20 @@ int UZDoom_STAR_CheckDoorAccess(struct AActor* owner, int keynum, int remote) {
 		return 0;
 	}
 
-	const char* keyname = GetKeycardName(keynum);
-	if (!keyname) return 0;
+	const char* keyname = nullptr;
+	if (!ODOOM_STAR_HasKeycard(keynum, &keyname)) return 0;
 
-	if (star_api_has_item(keyname)) {
-		/* Consume the keycard only when the player actually opens the door (past consume grace period). */
-		if (g_star_frames_since_beamin >= STAR_DOOR_CONSUME_GRACE_FRAMES)
-			star_sync_use_item_start(keyname, "odoom_door", ODOOM_OnUseItemDone, nullptr);
-		return 1;
-	}
+	/* Use the name variant that matched the API for consume. */
+	if (keyname && g_star_frames_since_beamin >= STAR_DOOR_CONSUME_GRACE_FRAMES)
+		star_sync_use_item_start(keyname, "odoom_door", ODOOM_OnUseItemDone, nullptr);
+	return 1;
+}
 
-	// IMPORTANT: OQuake keys are intentionally NOT valid for ODOOM doors.
-	// Gold/silver keys only open their matching doors in OQuake.
-
-	return 0;
+/** Read-only check for HUD/status bar: returns true if STAR has this key (so key icon can be drawn). Call when quiet==true in P_CheckKeys. */
+int UZDoom_STAR_PlayerHasKey(int keynum) {
+	if (keynum <= 0 || keynum > 4) return 0;
+	if (!StarTryInitializeAndAuthenticate(false)) return 0;
+	return ODOOM_STAR_HasKeycard(keynum, nullptr) ? 1 : 0;
 }
 
 void UZDoom_STAR_OnBossKilled(const char* boss_name) {
