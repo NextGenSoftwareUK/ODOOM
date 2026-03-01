@@ -26,6 +26,9 @@
 #include "r_state.h"
 #include "gi.h"
 #include "a_keys.h"
+#ifdef OASIS_STAR_API
+#include "uzdoom_star_integration.h"
+#endif
 #include "serializer_doom.h"
 #include "d_player.h"
 #include "p_spec.h"
@@ -432,7 +435,10 @@ bool FLevelLocals::EV_DoDoor (DDoor::EVlDoor type, line_t *line, AActor *thing,
 {
 	bool		rtn = false;
 	int 		secnum;
-	sector_t*	sec;
+	sector_t*	sec;#ifdef OASIS_STAR_API
+	ODOOM_STAR_LogEvDoDoorLock(lock);
+#endif
+
 
 	if (lock != 0 && !P_CheckKeys (thing, lock, tag != 0))
 		return false;
