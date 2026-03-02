@@ -658,7 +658,7 @@ class OASISInventoryOverlayHandler : EventHandler
 			int xp = xpVar.GetInt();
 			String xpText = String.Format("XP: %d", xp);
 			int xpW = f.StringWidth(xpText);
-			int xpX = 320 - xpW - 2 + 35;  // 35px to the right of original position
+			int xpX = 320 - xpW - 2 + 50;  // 50px to the right of original position
 			screen.DrawText(f, Font.CR_GOLD, xpX, 2, xpText, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 		}
 
