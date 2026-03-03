@@ -54,6 +54,7 @@ int star_api_consume_last_mint_result(char* item_name_out, size_t item_name_size
 #include "c_cvars.h"
 #include "m_argv.h"
 #include "printf.h"
+#include "i_time.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -93,6 +94,10 @@ static std::string g_star_last_pickup_name;
 static std::string g_star_last_pickup_type;
 static std::string g_star_last_pickup_desc;
 static bool g_star_has_last_pickup = false;
+/** Debounce generic pickups: avoid spamming when standing on health/items at full. Only queue same (name,type) once per 0.5s. */
+static std::string g_star_last_generic_key;
+static int g_star_last_generic_tic = -99999;
+static const int g_star_generic_debounce_ticks = 18;  /* ~0.5s at 35 tics/sec */
 static bool g_star_face_suppressed_for_session = false;
 /** Single source of truth for status bar face; only set by star face on/off and beam-in/out. */
 static bool g_star_show_anorak_face = false;
@@ -115,6 +120,8 @@ CVAR(Float, odoom_oq_monster_scale_ogre, 1.00f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG
 CVAR(Float, odoom_oq_monster_scale_enforcer, 1.00f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, odoom_oq_monster_scale_spawn, 1.00f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, odoom_oq_monster_scale_knight, 0.60f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Float, odoom_oq_monster_scale_scrag, 1.00f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Float, odoom_oq_monster_scale_shub, 1.00f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(String, odoom_star_username, "", 0)
 CVAR(String, odoom_oasis_api_url, "https://api.oasisplatform.world", CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 /* Stack (1) = each pickup adds quantity; Unlock (0) = one per type. Ammo always stacks. Shared with OQuake; sigils are OQuake-only. */
@@ -153,16 +160,19 @@ static const ODOOM_MonsterEntry ODOOM_MONSTERS[] = {
 	{ "Archvile",            "odoom_archvile",             "Archvile",     120, 0 },
 	{ "SpiderMastermind",    "odoom_spidermastermind",    "SpiderMastermind", 800, 1 },
 	{ "Cyberdemon",          "odoom_cyberdemon",          "Cyberdemon",   1000, 1 },
-	{ "OQMonsterDog",        "oquake_dog",                "Dog",             15, 0 },
+	/* OQ* entries: display names match Quake canonical names so inventory is consistent across games (per-game stacking via (ODOOM)/(OQUAKE) in name). */
+	{ "OQMonsterDog",        "oquake_dog",                "Rottweiler",     15, 0 },
 	{ "OQMonsterZombie",     "oquake_zombie",             "Zombie",         20, 0 },
-	{ "OQMonsterDemon",      "oquake_demon",              "Demon",          40, 0 },
+	{ "OQMonsterDemon",      "oquake_demon",              "Fiend",          40, 0 },
 	{ "OQMonsterShambler",   "oquake_shambler",           "Shambler",      200, 1 },
 	{ "OQMonsterGrunt",      "oquake_grunt",              "Grunt",          25, 0 },
-	{ "OQMonsterFish",       "oquake_fish",               "Fish",           30, 0 },
+	{ "OQMonsterFish",       "oquake_fish",               "Rotfish",        30, 0 },
 	{ "OQMonsterOgre",       "oquake_ogre",               "Ogre",           70, 0 },
 	{ "OQMonsterEnforcer",   "oquake_enforcer",           "Enforcer",       60, 0 },
 	{ "OQMonsterSpawn",      "oquake_spawn",              "Spawn",         100, 0 },
 	{ "OQMonsterKnight",     "oquake_knight",             "Knight",         80, 0 },
+	{ "OQMonsterScrag",      "oquake_scrag",              "Scrag",          60, 0 },
+	{ "OQMonsterShub",       "oquake_shub",               "Shub-Niggurath", 500, 1 },
 	{ nullptr, nullptr, nullptr, 0, 0 }
 };
 
@@ -1667,6 +1677,16 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 		itemType = g_star_pending_item_type.empty() ? "Item" : g_star_pending_item_type.c_str();
 	}
 	if (!name || !desc) return;
+
+	/* Debounce generic pickups so standing on a stimpack (etc.) doesn't spam: only queue same item once per 0.5s. */
+	if (keynum == STAR_PICKUP_GENERIC_ITEM) {
+		std::string key = std::string(name) + "|" + (itemType ? itemType : "Item");
+		int now = I_GetTime();
+		if (key == g_star_last_generic_key && (now - g_star_last_generic_tic) < g_star_generic_debounce_ticks)
+			return;
+		g_star_last_generic_key = key;
+		g_star_last_generic_tic = now;
+	}
 
 	/* C# client does all heavy lifting: queue pickup (mint if enabled, then add_item) or queue add_item only. */
 	bool isKey = (keynum >= 1 && keynum <= 4) || keynum == STAR_PICKUP_OQUAKE_GOLD_KEY || keynum == STAR_PICKUP_OQUAKE_SILVER_KEY;
