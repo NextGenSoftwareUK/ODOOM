@@ -141,6 +141,11 @@ CVAR(Int, odoom_star_mint_powerups, 0, CVAR_GLOBALCONFIG)
 CVAR(Int, odoom_star_mint_keys, 0, CVAR_GLOBALCONFIG)
 CVAR(String, odoom_star_nft_provider, "SolanaOASIS", CVAR_GLOBALCONFIG)
 CVAR(String, odoom_star_send_to_address_after_minting, "", CVAR_GLOBALCONFIG)
+/** 1 = always allow pickup (add to STAR inventory and remove from floor even when full); 0 = original Doom (full health/armor = can't pick up). */
+CVAR(Int, odoom_star_always_allow_pickup, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+/** Max health/armor when using items from inventory (e.g. 200). Can set higher if desired. */
+CVAR(Int, odoom_star_max_health, 200, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Int, odoom_star_max_armor, 200, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 /** Per-monster mint flag: 1 = mint NFT when killed, 0 = off. Keys = normalized config key (e.g. odoom_zombieman, oquake_ogre). */
 static std::map<std::string, int> g_odoom_mint_monster_flags;
@@ -333,6 +338,20 @@ static bool ODOOM_LoadJsonConfig(const char* json_path) {
 		odoom_star_send_to_address_after_minting = value;
 		loaded = true;
 	}
+	if (ODOOM_ExtractJsonValue(json, "always_allow_pickup", value, (int)sizeof(value))) {
+		odoom_star_always_allow_pickup = (atoi(value) != 0) ? 1 : 0;
+		loaded = true;
+	}
+	if (ODOOM_ExtractJsonValue(json, "max_health", value, (int)sizeof(value))) {
+		int v = atoi(value);
+		odoom_star_max_health = (v > 0) ? v : 200;
+		loaded = true;
+	}
+	if (ODOOM_ExtractJsonValue(json, "max_armor", value, (int)sizeof(value))) {
+		int v = atoi(value);
+		odoom_star_max_armor = (v > 0) ? v : 200;
+		loaded = true;
+	}
 	/* Per-monster mint: mint_monster_odoom_zombieman, mint_monster_oquake_ogre, etc. Default 1 if key missing. */
 	for (int i = 0; ODOOM_MONSTERS[i].engineName; i++) {
 		char key[128];
@@ -401,6 +420,20 @@ static bool ODOOM_SaveJsonConfig(const char* json_path) {
 			fputc((unsigned char)*send_addr, f);
 		}
 		fprintf(f, "\",\n");
+	}
+	{
+		int ap = 1, mh = 200, ma = 200;
+		FBaseCVar* v = FindCVar("odoom_star_always_allow_pickup", nullptr);
+		if (v && v->GetRealType() == CVAR_Int) ap = v->GetGenericRep(CVAR_Int).Int ? 1 : 0;
+		v = FindCVar("odoom_star_max_health", nullptr);
+		if (v && v->GetRealType() == CVAR_Int) mh = v->GetGenericRep(CVAR_Int).Int;
+		v = FindCVar("odoom_star_max_armor", nullptr);
+		if (v && v->GetRealType() == CVAR_Int) ma = v->GetGenericRep(CVAR_Int).Int;
+		if (mh <= 0) mh = 200;
+		if (ma <= 0) ma = 200;
+		fprintf(f, "  \"always_allow_pickup\": %d,\n", ap);
+		fprintf(f, "  \"max_health\": %d,\n", mh);
+		fprintf(f, "  \"max_armor\": %d,\n", ma);
 	}
 	int nmonsters = 0;
 	while (ODOOM_MONSTERS[nmonsters].engineName) nmonsters++;
@@ -708,17 +741,21 @@ static void ODOOM_ApplyHealthOrArmor(const std::string& name, const std::string&
 	const size_t np = (size_t)(-1);
 	const bool isHealth = (type.find("Health") != np || type.find("health") != np);
 	const bool isArmor = (type.find("Armor") != np || type.find("armor") != np);
+	int configMaxH = 200, configMaxA = 200;
+	{ FBaseCVar* v = FindCVar("odoom_star_max_health", nullptr); if (v && v->GetRealType() == CVAR_Int) configMaxH = v->GetGenericRep(CVAR_Int).Int; if (configMaxH <= 0) configMaxH = 200; }
+	{ FBaseCVar* v = FindCVar("odoom_star_max_armor", nullptr); if (v && v->GetRealType() == CVAR_Int) configMaxA = v->GetGenericRep(CVAR_Int).Int; if (configMaxA <= 0) configMaxA = 200; }
 	if (isHealth) {
 		int amount = 25;
 		int maxH = 100;
-		if (name.find("Stimpack") != np) { amount = 10; maxH = 100; }
-		else if (name.find("Medikit") != np) { amount = 25; maxH = 100; }
-		else if (name.find("Health Bonus") != np) { amount = 1; maxH = 100; }
-		else if (name.find("Soul Sphere") != np || name.find("Soul") != np) { amount = 100; maxH = 200; }
-		else if (name.find("Mega") != np && (name.find("Sphere") != np || name.find("Health") != np)) { amount = 200; maxH = 200; }
-		else if (name.find("Large Health") != np) { amount = 50; maxH = 200; }
-		else if (name.find("Mega Health") != np) { amount = 100; maxH = 200; }
-		else if (name.find("Health") != np) { amount = 25; maxH = 200; }
+		if (maxH > configMaxH) maxH = configMaxH;
+		if (name.find("Stimpack") != np) { amount = 10; maxH = (100 < configMaxH) ? 100 : configMaxH; }
+		else if (name.find("Medikit") != np) { amount = 25; maxH = (100 < configMaxH) ? 100 : configMaxH; }
+		else if (name.find("Health Bonus") != np) { amount = 1; maxH = (100 < configMaxH) ? 100 : configMaxH; }
+		else if (name.find("Soul Sphere") != np || name.find("Soul") != np) { amount = 100; maxH = configMaxH; }
+		else if (name.find("Mega") != np && (name.find("Sphere") != np || name.find("Health") != np)) { amount = 200; maxH = configMaxH; }
+		else if (name.find("Large Health") != np) { amount = 50; maxH = configMaxH; }
+		else if (name.find("Mega Health") != np) { amount = 100; maxH = configMaxH; }
+		else if (name.find("Health") != np) { amount = 25; maxH = configMaxH; }
 		{ int newH = player->mo->health + amount; player->mo->health = (newH < maxH) ? newH : maxH; }
 		player->health = player->mo->health;
 		Printf(PRINT_HIGH, "STAR: used %s, health now %d\n", name.c_str(), player->mo->health);
@@ -730,7 +767,7 @@ static void ODOOM_ApplyHealthOrArmor(const std::string& name, const std::string&
 		AActor* arm = player->mo->FindInventory(FName("BasicArmor"), true);
 		if (arm) {
 			int& a = arm->IntVar(FName("Amount"));
-			{ int newA = a + amount; a = (newA < 200) ? newA : 200; }
+			{ int newA = a + amount; int cap = configMaxA; a = (newA < cap) ? newA : cap; }
 			Printf(PRINT_HIGH, "STAR: used %s, armor now %d\n", name.c_str(), a);
 		}
 		/* If no BasicArmor yet, pick up any armor in-game first; UZDoom AActor has no GiveInventory in this build. */
@@ -1877,6 +1914,12 @@ int UZDoom_STAR_PlayerHasKey(int keynum) {
 	if (keynum <= 0 || keynum > 4) return 0;
 	if (!StarTryInitializeAndAuthenticate(false)) return 0;
 	return ODOOM_STAR_HasKeycard(keynum, nullptr) ? 1 : 0;
+}
+
+int UZDoom_STAR_AlwaysAllowPickup(void) {
+	FBaseCVar* v = FindCVar("odoom_star_always_allow_pickup", nullptr);
+	if (v && v->GetRealType() == CVAR_Int) return (v->GetGenericRep(CVAR_Int).Int != 0) ? 1 : 0;
+	return 1;
 }
 
 /** Called from a_doors.cpp EV_DoDoor before P_CheckKeys. Log once per lock value to star_api.log so we can tell if E on door reaches EV_DoDoor (if you see this but no "door v2 E on door", a_keys.cpp is not patched). */
