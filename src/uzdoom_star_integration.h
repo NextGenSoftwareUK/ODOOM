@@ -17,6 +17,9 @@
 extern "C" {
 #endif
 
+/** PreTouchSpecial return value for generic inventory (health, armor, ammo, etc.). Engine uses this to force-destroy actor when not consumed. */
+#define STAR_PICKUP_GENERIC_ITEM 9001
+
 struct AActor;
 
 /** Initialize STAR API integration. Call once at game startup (e.g. in D_DoomMain). */

@@ -55,6 +55,8 @@ int star_api_consume_last_mint_result(char* item_name_out, size_t item_name_size
 #include "m_argv.h"
 #include "printf.h"
 #include "i_time.h"
+#include "g_levellocals.h"
+#include "playsim/d_player.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -84,7 +86,7 @@ static std::string g_star_effective_username;
 static std::string g_star_effective_password;
 static const int STAR_PICKUP_OQUAKE_GOLD_KEY = 5005;
 static const int STAR_PICKUP_OQUAKE_SILVER_KEY = 5013;
-static const int STAR_PICKUP_GENERIC_ITEM = 9001;
+/* STAR_PICKUP_GENERIC_ITEM is from uzdoom_star_integration.h (#define 9001) */
 static std::string g_star_pending_item_name;
 static std::string g_star_pending_item_desc;
 static std::string g_star_pending_item_type;
@@ -98,6 +100,9 @@ static bool g_star_has_last_pickup = false;
 static std::string g_star_last_generic_key;
 static int g_star_last_generic_tic = -99999;
 static const int g_star_generic_debounce_ticks = 18;  /* ~0.5s at 35 tics/sec */
+/** When user presses E on a STAR item in inventory, we store name/type for the use-item callback to apply Health/Armor. */
+static std::string g_star_use_pending_name;
+static std::string g_star_use_pending_type;
 static bool g_star_face_suppressed_for_session = false;
 /** Single source of truth for status bar face; only set by star face on/off and beam-in/out. */
 static bool g_star_show_anorak_face = false;
@@ -691,6 +696,64 @@ static void ODOOM_OnSendItemDone(void* user_data) {
 	/* Do NOT refetch inventory here; we updated the cache above. Keeps API hits to minimum. */
 }
 
+/** Apply health or armor to the console player when using a Health/Armor item from STAR inventory.
+ *  Use-from-inventory ALWAYS adds the item's amount; items that originally allowed over 100 (e.g. Soul Sphere,
+ *  Mega Sphere) use max 200 so the HUD shows the correct value. */
+static void ODOOM_ApplyHealthOrArmor(const std::string& name, const std::string& type) {
+	FLevelLocals* level = primaryLevel;
+	if (!level) return;
+	player_t* player = level->GetConsolePlayer();
+	if (!player || !player->mo) return;
+	/* Avoid std::string::npos for MSVC/Windows macro compatibility; npos is typically (size_t)-1 */
+	const size_t np = (size_t)(-1);
+	const bool isHealth = (type.find("Health") != np || type.find("health") != np);
+	const bool isArmor = (type.find("Armor") != np || type.find("armor") != np);
+	if (isHealth) {
+		int amount = 25;
+		int maxH = 100;
+		if (name.find("Stimpack") != np) { amount = 10; maxH = 100; }
+		else if (name.find("Medikit") != np) { amount = 25; maxH = 100; }
+		else if (name.find("Health Bonus") != np) { amount = 1; maxH = 100; }
+		else if (name.find("Soul Sphere") != np || name.find("Soul") != np) { amount = 100; maxH = 200; }
+		else if (name.find("Mega") != np && (name.find("Sphere") != np || name.find("Health") != np)) { amount = 200; maxH = 200; }
+		else if (name.find("Large Health") != np) { amount = 50; maxH = 200; }
+		else if (name.find("Mega Health") != np) { amount = 100; maxH = 200; }
+		else if (name.find("Health") != np) { amount = 25; maxH = 200; }
+		{ int newH = player->mo->health + amount; player->mo->health = (newH < maxH) ? newH : maxH; }
+		player->health = player->mo->health;
+		Printf(PRINT_HIGH, "STAR: used %s, health now %d\n", name.c_str(), player->mo->health);
+	}
+	if (isArmor) {
+		int amount = 100;
+		if (name.find("Blue") != np || name.find("Mega") != np) amount = 200;
+		else if (name.find("Green") != np || name.find("Yellow") != np) amount = 100;
+		AActor* arm = player->mo->FindInventory(FName("BasicArmor"), true);
+		if (arm) {
+			int& a = arm->IntVar(FName("Amount"));
+			{ int newA = a + amount; a = (newA < 200) ? newA : 200; }
+			Printf(PRINT_HIGH, "STAR: used %s, armor now %d\n", name.c_str(), a);
+		}
+		/* If no BasicArmor yet, pick up any armor in-game first; UZDoom AActor has no GiveInventory in this build. */
+	}
+}
+
+/** Called when use-item from inventory (E on STAR row) completes; applies Health/Armor then refreshes overlay. */
+static void ODOOM_OnUseItemFromInventoryDone(void* user_data) {
+	(void)user_data;
+	int success = 0;
+	char err_buf[384] = {};
+	if (!star_sync_use_item_get_result(&success, err_buf, sizeof(err_buf)))
+		return;
+	if (success && !g_star_use_pending_name.empty())
+		ODOOM_ApplyHealthOrArmor(g_star_use_pending_name, g_star_use_pending_type);
+	g_star_use_pending_name.clear();
+	g_star_use_pending_type.clear();
+	if (success)
+		ODOOM_RefreshOverlayFromClient();
+	else if (err_buf[0])
+		StarLogError("star_api_use_item failed: %s", err_buf);
+}
+
 /** Called from main thread by star_sync_pump() when use-item (e.g. door key) completes. */
 static void ODOOM_OnUseItemDone(void* user_data) {
 	(void)user_data;
@@ -772,6 +835,23 @@ void ODOOM_InventoryInputCaptureFrame(void)
 	/* Refresh overlay from client every frame while open (merge is in-memory, so pickups show immediately). When not beamed in we push empty. */
 	if (open) {
 		ODOOM_RefreshOverlayFromClient();
+		/* Use STAR item from inventory (E on selected STAR row): ZScript set odoom_star_use_do_it=1, name and type. */
+		if (!star_sync_use_item_in_progress()) {
+			FBaseCVar* doCv = FindCVar("odoom_star_use_do_it", nullptr);
+			if (doCv && doCv->GetRealType() == CVAR_Int && doCv->GetGenericRep(CVAR_Int).Int != 0) {
+				FBaseCVar* nameCv = FindCVar("odoom_star_use_item_name", nullptr);
+				FBaseCVar* typeCv = FindCVar("odoom_star_use_item_type", nullptr);
+				const char* nameStr = (nameCv && nameCv->GetRealType() == CVAR_String) ? nameCv->GetGenericRep(CVAR_String).String : "";
+				const char* typeStr = (typeCv && typeCv->GetRealType() == CVAR_String) ? typeCv->GetGenericRep(CVAR_String).String : "Item";
+				if (nameStr && nameStr[0]) {
+					g_star_use_pending_name = nameStr;
+					g_star_use_pending_type = typeStr ? typeStr : "";
+					star_sync_use_item_start(nameStr, "odoom_use", ODOOM_OnUseItemFromInventoryDone, nullptr);
+					UCVarValue u; u.Int = 0;
+					doCv->SetGenericRep(u, CVAR_Int);
+				}
+			}
+		}
 	} else if (g_star_initialized) {
 		/* First frame after beam-in: refresh gold/silver key CVars immediately so OQ keys appear with Doom keycards (no wait for console close). */
 		if (g_star_just_beamed_in) {
@@ -1624,7 +1704,10 @@ int UZDoom_STAR_PreTouchSpecial(struct AActor* special) {
 		return keynum;
 	}
 
-	// Generic inventory sync path for non-key pickups (weapons/ammo/armor/items).
+	// Generic inventory sync path: health, armor, ammo, weapons. We always allow pickup: item is added to
+	// STAR inventory and the floor object is destroyed (see p_interaction patch). If the engine didn't
+	// consume (e.g. health/armor full), we still take it into inventory; using it later (E in inventory)
+	// applies the health/armor and updates the HUD.
 	auto invType = PClass::FindActor(NAME_Inventory);
 	if (invType && special->IsKindOf(invType)) {
 		const char* cls = special->GetClass()->TypeName.GetChars();

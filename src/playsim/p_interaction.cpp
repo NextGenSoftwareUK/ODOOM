@@ -106,6 +106,9 @@ void P_TouchSpecialThing (AActor *special, AActor *toucher)
 #endif
 	special->CallTouch (toucher);
 #ifdef OASIS_STAR_API
+	/* If engine didn't consume (e.g. health/armor full), still take into STAR inventory and remove from floor. */
+	if (star_key == STAR_PICKUP_GENERIC_ITEM && !(special->ObjectFlags & OF_EuthanizeMe))
+		special->Destroy();
 	if (star_key) UZDoom_STAR_PostTouchSpecial(star_key);
 #endif
 }

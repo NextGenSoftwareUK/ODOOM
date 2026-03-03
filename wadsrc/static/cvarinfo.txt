@@ -47,3 +47,7 @@ server int odoom_star_has_silver_key = 0;
 server int odoom_star_beamed_in = 0;
 
 server int odoom_star_avatar_xp = 0;
+
+server string odoom_star_use_item_name = "";
+server string odoom_star_use_item_type = "";
+server int odoom_star_use_do_it = 0;
