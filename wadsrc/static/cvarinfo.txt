@@ -51,3 +51,6 @@ server int odoom_star_avatar_xp = 0;
 server string odoom_star_use_item_name = "";
 server string odoom_star_use_item_type = "";
 server int odoom_star_use_do_it = 0;
+
+server string odoom_star_toast_message = "";
+server int odoom_star_toast_frames = 0;
