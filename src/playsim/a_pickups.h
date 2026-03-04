@@ -52,5 +52,6 @@ struct visstyle_t
 
 bool CallTryPickup(AActor *item, AActor *toucher, AActor **toucher_return = nullptr);
 void DepleteOrDestroy(AActor *item);			// virtual on the script side. 
+void PrintPickupMessage(bool localview, const FString &str);	// OASIS STAR: call from integration for pickup feedback
 
 #endif //__A_PICKUPS_H__

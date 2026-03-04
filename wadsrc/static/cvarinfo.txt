@@ -54,3 +54,6 @@ server int odoom_star_use_do_it = 0;
 
 server string odoom_star_toast_message = "";
 server int odoom_star_toast_frames = 0;
+
+server string odoom_star_pickup_toast_message = "";
+server int odoom_star_pickup_toast_frames = 0;
