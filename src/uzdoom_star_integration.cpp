@@ -1791,8 +1791,9 @@ static const char* const* GetKeycardNameVariants(int keynum, int* outCount) {
 		case 2: *outCount = 5; return blue;
 		case 3: *outCount = 5; return yellow;
 		case 4: *outCount = 3; return skull;
-		case 129: *outCount = 5; return blue;   /* common custom lock = blue */
-		case 130: *outCount = 5; return red;    /* common custom lock = red */
+		case 129: *outCount = 5; return red;    /* ZDoom extended lock 129 = red keycard */
+		case 130: *outCount = 5; return blue;    /* ZDoom extended lock 130 = blue keycard */
+		case 131: *outCount = 5; return yellow;  /* ZDoom extended lock 131 = yellow keycard */
 		default: *outCount = 0; return nullptr;
 	}
 }
@@ -1811,9 +1812,9 @@ static bool KeyNameContainsKeycard(int keynum, const char* itemName) {
 		return lower.find(s) != std::string::npos;
 	};
 	switch (keynum) {
-		case 1: case 130: return has("red") && (has("key") || has("keycard"));
-		case 2: case 129: return has("blue") && (has("key") || has("keycard"));
-		case 3: return has("yellow") && (has("key") || has("keycard"));
+		case 1: case 129: return has("red") && (has("key") || has("keycard"));
+		case 2: case 130: return has("blue") && (has("key") || has("keycard"));
+		case 3: case 131: return has("yellow") && (has("key") || has("keycard"));
 		case 4: return has("skull") && has("key");
 		default: return false;
 	}
@@ -1847,13 +1848,14 @@ static bool ODOOM_STAR_HasKeycard(int keynum, const char** outName) {
 			found = true;
 			break;
 		}
+		/* Engine key name fallback: only accept if item name contains engine key string AND matches this door's key type (red/blue/yellow), so e.g. "Keycard" never matches blue for a red door. */
 		if (engineKeyName && it->name && it->name[0]) {
 			std::string lowerItem;
 			for (const char* p = it->name; *p; ++p)
 				lowerItem.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(*p == '_' ? ' ' : *p))));
 			std::string lowerKey(engineKeyName);
 			for (auto& c : lowerKey) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-			if (lowerItem.find(lowerKey) != std::string::npos) {
+			if (lowerItem.find(lowerKey) != std::string::npos && KeyNameContainsKeycard(keynum, it->name)) {
 				std::strncpy(matched_name, it->name, sizeof(matched_name) - 1);
 				matched_name[sizeof(matched_name) - 1] = '\0';
 				found = true;
@@ -1913,6 +1915,7 @@ void UZDoom_STAR_Init(void) {
 	Printf("  " GAMENAME " " ODOOM_VERSION_STR "\n");
 	Printf("  STAR API - Enabling full interoperable games across the OASIS Omniverse!\n");
 	Printf("  Type 'star' in console for STAR commands.\n");
+	Printf("  Locked doors: press E on the door to use a keycard (key only used when you press E).\n");
 	Printf("\n");
 	Printf("  Welcome to ODOOM!\n");
 	Printf("\n");
@@ -2086,9 +2089,24 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 	}
 }
 
+/* Use button (E) in ticcmd_t.buttons. Matches engine BT_USE = 2. */
+#define ODOOM_BT_USE 2
+
 int UZDoom_STAR_CheckDoorAccess(struct AActor* owner, int keynum, int remote) {
+	(void)remote;
 	if (!owner || keynum <= 0) return 0;
-	/* Only called when player used the line (!quiet), so we open when we have the key. No per-tic logging. */
+
+	/* Only open and consume when the player is actually pressing E on the door.
+	 * The engine can call P_CheckKeys(!quiet) from other paths (e.g. sector re-check), so we require use button. */
+	player_t* pl = owner->player;
+	if (!pl) {
+		/* Fallback: owner may be console player's mo; get console player for single-player. */
+		FLevelLocals* level = primaryLevel;
+		if (!level) return 0;
+		pl = level->GetConsolePlayer();
+		if (!pl || pl->mo != owner) return 0;
+	}
+	if (!(pl->cmd.buttons & ODOOM_BT_USE)) return 0;
 
 	if (!StarTryInitializeAndAuthenticate(false)) {
 		StarLogRuntimeAuthFailureOnce(star_api_get_last_error());
@@ -2102,8 +2120,14 @@ int UZDoom_STAR_CheckDoorAccess(struct AActor* owner, int keynum, int remote) {
 
 	/* Consume key matching this door (red door = red keycard only). */
 	bool keyMatchesDoor = (keyname && KeyNameContainsKeycard(keynum, keyname));
-	if (keyname && keyMatchesDoor)
+	if (keyname && keyMatchesDoor) {
 		star_sync_use_item_start(keyname, "odoom_door", ODOOM_OnUseItemDone, nullptr);
+		/* Minimal logging: one line to file and console when door is opened with key. */
+		char buf[256];
+		std::snprintf(buf, sizeof(buf), "[ODOOM STAR] door keynum=%d opened with key=\"%s\"", keynum, keyname);
+		star_api_log_to_file(buf);
+		Printf(PRINT_HIGH, TEXTCOLOR_GREEN "%s\n", buf);
+	}
 	return 1;
 }
 
