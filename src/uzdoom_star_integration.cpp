@@ -64,6 +64,36 @@ int star_api_consume_last_mint_result(char* item_name_out, size_t item_name_size
 #include <windows.h>
 #include <wincred.h>
 #pragma comment(lib, "Credui.lib")
+/* Use Windows virtual key codes for ODOOM_GetRawKeyDown(GetAsyncKeyState). */
+#define ODOOM_K_UP        VK_UP
+#define ODOOM_K_DOWN      VK_DOWN
+#define ODOOM_K_LEFT      VK_LEFT
+#define ODOOM_K_RIGHT     VK_RIGHT
+#define ODOOM_K_RETURN    VK_RETURN
+#define ODOOM_K_PAGEUP    VK_PRIOR
+#define ODOOM_K_PAGEDOWN  VK_NEXT
+#define ODOOM_K_HOME      VK_HOME
+#define ODOOM_K_END       VK_END
+#else
+/* Use engine key codes (GK_*) so code compiles on Linux and macOS. Provided by engine keydef headers. */
+#define ODOOM_K_UP        GK_UP
+#define ODOOM_K_DOWN      GK_DOWN
+#define ODOOM_K_LEFT      GK_LEFT
+#define ODOOM_K_RIGHT     GK_RIGHT
+#define ODOOM_K_RETURN    GK_RETURN
+#if defined(GK_PAGEUP)
+#define ODOOM_K_PAGEUP    GK_PAGEUP
+#define ODOOM_K_PAGEDOWN  GK_PAGEDOWN
+#elif defined(GK_PRIOR)
+#define ODOOM_K_PAGEUP    GK_PRIOR
+#define ODOOM_K_PAGEDOWN  GK_NEXT
+#else
+/* Fallback if engine uses other names; define to a harmless value so build succeeds. */
+#define ODOOM_K_PAGEUP    0
+#define ODOOM_K_PAGEDOWN  0
+#endif
+#define ODOOM_K_HOME      GK_HOME
+#define ODOOM_K_END       GK_END
 #endif
 
 static star_api_config_t g_star_config;
@@ -209,8 +239,8 @@ static bool g_star_init_failed_this_session = false;
 
 /** Frames since beam-in (or STAR became initialized). Used to avoid consuming key when opening door for a short time after beam-in. */
 static int g_star_frames_since_beamin = 99999;
-/** Do not consume key when opening door for this many frames (~5 s) after beam-in. */
-static const int STAR_DOOR_CONSUME_GRACE_FRAMES = 300;
+/** Always consume key when opening door (was 300-frame grace after beam-in; now 0 so key is used and HUD updates). */
+static const int STAR_DOOR_CONSUME_GRACE_FRAMES = 0;
 /** Set true in OnAuthDone when beam-in succeeds; next frame we refresh gold/silver key CVars once so they appear with Doom keycards. */
 static bool g_star_just_beamed_in = false;
 
@@ -484,7 +514,7 @@ static void ODOOM_SaveStarConfigToFiles(void) {
 		g_odoom_json_config_path = path;
 }
 
-/** Return 1 if key is currently down, 0 otherwise. Uses platform API when available. */
+/** Return 1 if key is currently down, 0 otherwise. Windows: GetAsyncKeyState(VK_*). Linux/macOS: engine GK_*; returns 0 until engine key API is wired. */
 static int ODOOM_GetRawKeyDown(int vk_or_ascii)
 {
 #ifdef _WIN32
@@ -492,7 +522,7 @@ static int ODOOM_GetRawKeyDown(int vk_or_ascii)
 	return (s & 0x8000) ? 1 : 0;
 #else
 	(void)vk_or_ascii;
-	return 0;
+	return 0;  /* Linux/macOS: TODO wire to engine key state (GK_*) when API available */
 #endif
 }
 
@@ -1089,15 +1119,26 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		C_DoCommand("bind pgdn \"\"");
 		C_DoCommand("bind home \"\"");
 		C_DoCommand("bind end \"\"");
+		/* Restore number keys for weapon slots (original Doom engine behavior: 0-9 select weapons). */
+		C_DoCommand("bind 0 \"slot0\"");
+		C_DoCommand("bind 1 \"slot1\"");
+		C_DoCommand("bind 2 \"slot2\"");
+		C_DoCommand("bind 3 \"slot3\"");
+		C_DoCommand("bind 4 \"slot4\"");
+		C_DoCommand("bind 5 \"slot5\"");
+		C_DoCommand("bind 6 \"slot6\"");
+		C_DoCommand("bind 7 \"slot7\"");
+		C_DoCommand("bind 8 \"slot8\"");
+		C_DoCommand("bind 9 \"slot9\"");
 		g_odoom_inventory_bindings_captured = false;
 	}
 
 	/* Always feed raw key state into CVars so ZScript can open inventory with I (keyIPressed) when closed and drive popup when open. */
 	{
-		int up   = ODOOM_GetRawKeyDown(VK_UP);
-		int down = ODOOM_GetRawKeyDown(VK_DOWN);
-		int left = ODOOM_GetRawKeyDown(VK_LEFT);
-		int right= ODOOM_GetRawKeyDown(VK_RIGHT);
+		int up   = ODOOM_GetRawKeyDown(ODOOM_K_UP);
+		int down = ODOOM_GetRawKeyDown(ODOOM_K_DOWN);
+		int left = ODOOM_GetRawKeyDown(ODOOM_K_LEFT);
+		int right= ODOOM_GetRawKeyDown(ODOOM_K_RIGHT);
 		int use  = ODOOM_GetRawKeyDown('E');
 		int a    = ODOOM_GetRawKeyDown('A');
 		int c    = ODOOM_GetRawKeyDown('C');
@@ -1106,11 +1147,11 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		int i    = ODOOM_GetRawKeyDown('I');
 		int o    = ODOOM_GetRawKeyDown('O');
 		int p    = ODOOM_GetRawKeyDown('P');
-		int enter= ODOOM_GetRawKeyDown(VK_RETURN);
-		int pgup  = ODOOM_GetRawKeyDown(VK_PRIOR);
-		int pgdown= ODOOM_GetRawKeyDown(VK_NEXT);
-		int home  = ODOOM_GetRawKeyDown(VK_HOME);
-		int endkey= ODOOM_GetRawKeyDown(VK_END);
+		int enter= ODOOM_GetRawKeyDown(ODOOM_K_RETURN);
+		int pgup  = ODOOM_GetRawKeyDown(ODOOM_K_PAGEUP);
+		int pgdown= ODOOM_GetRawKeyDown(ODOOM_K_PAGEDOWN);
+		int home  = ODOOM_GetRawKeyDown(ODOOM_K_HOME);
+		int endkey= ODOOM_GetRawKeyDown(ODOOM_K_END);
 		/* Merge Enter into use so ZScript sees keyUsePressed for both E and Enter (confirm/close) */
 		use = (use || enter) ? 1 : 0;
 		ODOOM_InventorySetKeyState(up, down, left, right, use, a, c, z, x, i, o, p, enter, pgup, pgdown, home, endkey);
@@ -1313,7 +1354,29 @@ void ODOOM_InventoryInputCaptureFrame(void)
 	}
 }
 
-/** Called after TryRunTics so health/armor apply runs after the tic. Re-apply stored target for 3 frames so engine overwrites don't stick. */
+/** Re-apply stored health/armor to the console player. Called from PostTic (once per frame) and PostOneTic (every tic) so engine overwrites don't stick. */
+static void ODOOM_ReapplyStoredHealthArmor(void) {
+	FLevelLocals* level = primaryLevel;
+	player_t* player = level ? level->GetConsolePlayer() : nullptr;
+	if (!player || !player->mo || (!g_star_deferred_apply_health && !g_star_deferred_apply_armor)) return;
+	if (g_star_deferred_apply_health && g_star_deferred_health_value >= 0) {
+		player->health = g_star_deferred_health_value;
+		player->mo->health = g_star_deferred_health_value;
+	}
+	if (g_star_deferred_apply_armor && g_star_deferred_armor_value >= 0) {
+		AActor* arm = player->mo->FindInventory(FName("BasicArmor"), true);
+		if (arm)
+			arm->IntVar(FName("Amount")) = g_star_deferred_armor_value;
+	}
+}
+
+/** Called after every game tic (inside TryRunTics loop). Re-applies stored health/armor so whatever overwrites it during the tic is corrected before the next tic. */
+void ODOOM_PostOneTic(void) {
+	if (g_star_deferred_apply_frames <= 0 || g_star_deferred_apply_frames >= 35) return;
+	ODOOM_ReapplyStoredHealthArmor();
+}
+
+/** Called after TryRunTics so health/armor apply runs after the tic. First frame applies via engine; then we re-apply for ~1 s (PostOneTic does per-tic re-apply). */
 void ODOOM_PostTic(void)
 {
 	if (g_star_deferred_apply_frames <= 0)
@@ -1323,18 +1386,9 @@ void ODOOM_PostTic(void)
 	if (g_star_deferred_apply_frames >= 34 && !g_star_deferred_apply_name.empty()) {
 		/* First frame: apply via engine and store target values. */
 		ODOOM_ApplyHealthOrArmor(g_star_deferred_apply_name, g_star_deferred_apply_type);
-		g_star_deferred_apply_frames = 33; /* 33 more re-apply frames (~1 s) */
+		g_star_deferred_apply_frames = 33; /* 33 more frames; PostOneTic re-applies every tic within each frame */
 	} else if (player && player->mo && (g_star_deferred_apply_health || g_star_deferred_apply_armor)) {
-		/* Re-apply frames: set health/armor to stored target so HUD stays correct. */
-		if (g_star_deferred_apply_health && g_star_deferred_health_value >= 0) {
-			player->health = g_star_deferred_health_value;
-			player->mo->health = g_star_deferred_health_value;
-		}
-		if (g_star_deferred_apply_armor && g_star_deferred_armor_value >= 0) {
-			AActor* arm = player->mo->FindInventory(FName("BasicArmor"), true);
-			if (arm)
-				arm->IntVar(FName("Amount")) = g_star_deferred_armor_value;
-		}
+		ODOOM_ReapplyStoredHealthArmor();
 		g_star_deferred_apply_frames--;
 	} else {
 		g_star_deferred_apply_frames = 0;
@@ -1747,6 +1801,8 @@ static const char* const* GetKeycardNameVariants(int keynum, int* outCount) {
 		case 2: *outCount = 5; return blue;
 		case 3: *outCount = 5; return yellow;
 		case 4: *outCount = 3; return skull;
+		case 129: *outCount = 5; return blue;   /* common custom lock = blue */
+		case 130: *outCount = 5; return red;    /* common custom lock = red */
 		default: *outCount = 0; return nullptr;
 	}
 }
@@ -1765,15 +1821,15 @@ static bool KeyNameContainsKeycard(int keynum, const char* itemName) {
 		return lower.find(s) != std::string::npos;
 	};
 	switch (keynum) {
-		case 1: return has("red") && (has("key") || has("keycard"));
-		case 2: return has("blue") && (has("key") || has("keycard"));
+		case 1: case 130: return has("red") && (has("key") || has("keycard"));
+		case 2: case 129: return has("blue") && (has("key") || has("keycard"));
 		case 3: return has("yellow") && (has("key") || has("keycard"));
 		case 4: return has("skull") && has("key");
 		default: return false;
 	}
 }
 
-/** Returns true if STAR inventory has this key (any name variant). If outName is non-null, set to the first matching variant for use_item. Fallback: scan get_inventory when variants fail. No logging here (called every frame for HUD). */
+/** Returns true if STAR inventory has this key (any name variant). If outName is non-null, set to the first matching variant for use_item. Fallback: scan get_inventory when variants fail. For custom keynums, uses P_GetKeyNameForLock when available. */
 static bool ODOOM_STAR_HasKeycard(int keynum, const char** outName) {
 	int n = 0;
 	const char* const* names = GetKeycardNameVariants(keynum, &n);
@@ -1785,7 +1841,8 @@ static bool ODOOM_STAR_HasKeycard(int keynum, const char** outName) {
 			}
 		}
 	}
-	/* Fallback: get full inventory and match by name content (handles "Red Keycard (ODOOM)" etc.) */
+	/* Fallback: get full inventory and match by name content (handles "Red Keycard (ODOOM)" etc.). For custom locks, also try engine key name. */
+	const char* engineKeyName = (keynum > 4) ? P_GetKeyNameForLock(keynum) : nullptr;
 	star_item_list_t* list = nullptr;
 	if (star_api_get_inventory(&list) != STAR_API_SUCCESS || !list || !list->items)
 		return false;
@@ -1799,6 +1856,20 @@ static bool ODOOM_STAR_HasKeycard(int keynum, const char** outName) {
 			matched_name[sizeof(matched_name) - 1] = '\0';
 			found = true;
 			break;
+		}
+		if (engineKeyName && it->name && it->name[0]) {
+			const size_t np = (size_t)(-1);
+			std::string lowerItem;
+			for (const char* p = it->name; *p; ++p)
+				lowerItem.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(*p))));
+			std::string lowerKey(engineKeyName);
+			for (auto& c : lowerKey) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			if (lowerItem.find(lowerKey) != np) {
+				std::strncpy(matched_name, it->name, sizeof(matched_name) - 1);
+				matched_name[sizeof(matched_name) - 1] = '\0';
+				found = true;
+				break;
+			}
 		}
 	}
 	star_api_free_item_list(list);
@@ -1903,18 +1974,20 @@ int UZDoom_STAR_PreTouchSpecial(struct AActor* special) {
 		return keynum;
 	}
 
-	// Generic inventory sync path: health, armor, ammo, weapons. We always allow pickup: item is added to
-	// STAR inventory and the floor object is destroyed (see p_interaction patch). If the engine didn't
-	// consume (e.g. health/armor full), we still take it into inventory; using it later (E in inventory)
-	// applies the health/armor and updates the HUD.
+	// Generic inventory sync path: health, armor, ammo (not weapons). Weapons return 0 so the engine
+	// handles pickup normally (player gets weapon, auto-switch, number keys work). Health/armor/ammo when
+	// always_allow_pickup=1 go to STAR and floor item is destroyed; using from inventory applies them.
 	auto invType = PClass::FindActor(NAME_Inventory);
 	if (invType && special->IsKindOf(invType)) {
+		auto weaponType = PClass::FindActor(NAME_Weapon);
+		if (weaponType && special->IsKindOf(weaponType)) {
+			/* Let engine handle weapon pickup so player auto-switches and number keys work (original Doom behavior). */
+			return 0;
+		}
 		const char* cls = special->GetClass()->TypeName.GetChars();
 		const char* type = "Item";
-		auto weaponType = PClass::FindActor(NAME_Weapon);
 		auto ammoType = PClass::FindActor(NAME_Ammo);
-		if (weaponType && special->IsKindOf(weaponType)) type = "Weapon";
-		else if (ammoType && special->IsKindOf(ammoType)) type = "Ammo";
+		if (ammoType && special->IsKindOf(ammoType)) type = "Ammo";
 		else if (cls && (strstr(cls, "Armor") || strstr(cls, "armor"))) type = "Armor";
 		else if (cls && (strstr(cls, "Health") || strstr(cls, "health") || strstr(cls, "Medikit") || strstr(cls, "Stimpack"))) type = "Health";
 
@@ -2027,8 +2100,7 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 
 int UZDoom_STAR_CheckDoorAccess(struct AActor* owner, int keynum, int remote) {
 	if (!owner || keynum <= 0) return 0;
-	/* Only Doom keycard doors (1-4). Engine may call with many keynums; only handle 1-4 (no log for >4 to avoid spam). */
-	if (keynum > 4) return 0;
+	/* Support standard (1-4) and common custom locks (129=blue, 130=red). Other keynums use GetKeycardNameVariants if added, or P_GetKeyNameForLock. */
 
 	/* Unconditional log when E is pressed on a door; also write to star_api.log so user can paste. */
 	{
@@ -2071,7 +2143,8 @@ int UZDoom_STAR_CheckDoorAccess(struct AActor* owner, int keynum, int remote) {
 	}
 
 	/* Use the name variant that matched the API for consume. */
-	if (keyname && g_star_frames_since_beamin >= STAR_DOOR_CONSUME_GRACE_FRAMES)
+	/* Always consume key when opening door so STAR inventory and HUD update (key vanishes from list and status bar). */
+	if (keyname)
 		star_sync_use_item_start(keyname, "odoom_door", ODOOM_OnUseItemDone, nullptr);
 	if (g_star_debug_logging)
 		StarLogInfo("Door check: OPENED keynum=%d with \"%s\"", keynum, keyname ? keyname : "(null)");
@@ -2085,7 +2158,7 @@ int UZDoom_STAR_CheckDoorAccess(struct AActor* owner, int keynum, int remote) {
 
 /** Read-only check for HUD/status bar: returns true if STAR has this key (so key icon can be drawn). Call when quiet==true in P_CheckKeys. */
 int UZDoom_STAR_PlayerHasKey(int keynum) {
-	if (keynum <= 0 || keynum > 4) return 0;
+	if (keynum <= 0) return 0;
 	if (!StarTryInitializeAndAuthenticate(false)) return 0;
 	return ODOOM_STAR_HasKeycard(keynum, nullptr) ? 1 : 0;
 }
