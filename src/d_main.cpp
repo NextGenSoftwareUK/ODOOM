@@ -1454,6 +1454,9 @@ void D_DoomLoop ()
 			I_SetFrameTime();
 
 			TryRunTics (); // will run at least one tic
+#ifdef OASIS_STAR_API
+	ODOOM_PostTic();
+#endif
 			// Update display, next frame, with current state.
 			I_StartTic ();
 			D_ProcessEvents();

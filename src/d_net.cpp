@@ -2320,6 +2320,9 @@ void TryRunTics()
 		G_Ticker();
 		MakeConsistencies();
 		++gametic;
+#ifdef OASIS_STAR_API
+		ODOOM_PostOneTic();
+#endif
 
 		if (stabilize)
 			TicStabilityEnd();

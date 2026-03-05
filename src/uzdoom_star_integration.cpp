@@ -109,6 +109,10 @@ static std::string g_star_use_pending_type;
 static std::string g_star_deferred_apply_name;
 static std::string g_star_deferred_apply_type;
 static int g_star_deferred_apply_frames = 0;  /* number of frames left to re-apply (e.g. 3) */
+static int g_star_deferred_health_value = -1; /* target health to re-assign on next frames (avoids engine overwrite) */
+static int g_star_deferred_armor_value = -1;
+static bool g_star_deferred_apply_health = false;
+static bool g_star_deferred_apply_armor = false;
 static bool g_star_face_suppressed_for_session = false;
 /** Single source of truth for status bar face; only set by star face on/off and beam-in/out. */
 static bool g_star_show_anorak_face = false;
@@ -810,6 +814,10 @@ static void ODOOM_ApplyHealthOrArmor(const std::string& name, const std::string&
 	int configMaxH = 200, configMaxA = 200;
 	{ FBaseCVar* v = FindCVar("odoom_star_max_health", nullptr); if (v && v->GetRealType() == CVAR_Int) configMaxH = v->GetGenericRep(CVAR_Int).Int; if (configMaxH <= 0) configMaxH = 200; }
 	{ FBaseCVar* v = FindCVar("odoom_star_max_armor", nullptr); if (v && v->GetRealType() == CVAR_Int) configMaxA = v->GetGenericRep(CVAR_Int).Int; if (configMaxA <= 0) configMaxA = 200; }
+	g_star_deferred_apply_health = false;
+	g_star_deferred_apply_armor = false;
+	g_star_deferred_health_value = -1;
+	g_star_deferred_armor_value = -1;
 	if (isHealth) {
 		int amount = 25;
 		if (n.find("Stimpack") != np) amount = 10;
@@ -821,8 +829,11 @@ static void ODOOM_ApplyHealthOrArmor(const std::string& name, const std::string&
 		else if (n.find("Mega Health") != np) amount = 100;
 		else if (n.find("Health") != np) amount = 25;
 		/* Use engine path so HUD updates; config max allows over 200 when set higher. */
-		if (P_GiveBody(player->mo, amount, configMaxH))
+		if (P_GiveBody(player->mo, amount, configMaxH)) {
+			g_star_deferred_apply_health = true;
+			g_star_deferred_health_value = player->mo->health;
 			Printf(PRINT_HIGH, "STAR: used %s, health now %d\n", n.c_str(), player->mo->health);
+		}
 	}
 	if (isArmor) {
 		int amount = 100;
@@ -832,6 +843,8 @@ static void ODOOM_ApplyHealthOrArmor(const std::string& name, const std::string&
 		if (arm) {
 			int& a = arm->IntVar(FName("Amount"));
 			{ int newA = a + amount; int cap = configMaxA; a = (newA < cap) ? newA : cap; }
+			g_star_deferred_apply_armor = true;
+			g_star_deferred_armor_value = a;
 			Printf(PRINT_HIGH, "STAR: used %s, armor now %d\n", n.c_str(), a);
 		}
 	}
@@ -847,7 +860,7 @@ static void ODOOM_OnUseItemFromInventoryDone(void* user_data) {
 	if (success && !g_star_use_pending_name.empty()) {
 		g_star_deferred_apply_name = g_star_use_pending_name;
 		g_star_deferred_apply_type = g_star_use_pending_type;
-		g_star_deferred_apply_frames = 3;  /* re-apply for 3 frames so HUD/status bar picks up the change */
+		g_star_deferred_apply_frames = 35; /* re-apply for ~1 sec so engine/voodoo overwrites don't revert health */
 	}
 	g_star_use_pending_name.clear();
 	g_star_use_pending_type.clear();
@@ -873,14 +886,7 @@ static void ODOOM_OnUseItemDone(void* user_data) {
 /** Called every frame from the main loop (see patch_uzdoom_engine.ps1: d_main and g_game). Must run so send/auth/inventory callbacks are invoked. */
 void ODOOM_InventoryInputCaptureFrame(void)
 {
-	/* Apply deferred health/armor once (engine P_GiveBody updates HUD; no multi-frame re-apply). */
-	if (g_star_deferred_apply_frames > 0 && !g_star_deferred_apply_name.empty()) {
-		ODOOM_ApplyHealthOrArmor(g_star_deferred_apply_name, g_star_deferred_apply_type);
-		g_star_deferred_apply_frames = 0;
-		g_star_deferred_apply_name.clear();
-		g_star_deferred_apply_type.clear();
-		ODOOM_RefreshOverlayFromClient();
-	}
+	/* Deferred health/armor is applied in ODOOM_PostTic (after the tic) so the HUD is not overwritten. */
 
 	/* Decrement toast frame counters so ZScript shows messages for their duration. */
 	{
@@ -1304,6 +1310,43 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		{ UCVarValue u; u.Int = 0; doItVar->SetGenericRep(u, CVAR_Int); }
 		/* Do not close send popup here; ZScript keeps it open and shows Sending.../result, then user closes. */
 		g_odoom_send_popup_was_open = false;
+	}
+}
+
+/** Called after TryRunTics so health/armor apply runs after the tic. Re-apply stored target for 3 frames so engine overwrites don't stick. */
+void ODOOM_PostTic(void)
+{
+	if (g_star_deferred_apply_frames <= 0)
+		return;
+	FLevelLocals* level = primaryLevel;
+	player_t* player = level ? level->GetConsolePlayer() : nullptr;
+	if (g_star_deferred_apply_frames >= 34 && !g_star_deferred_apply_name.empty()) {
+		/* First frame: apply via engine and store target values. */
+		ODOOM_ApplyHealthOrArmor(g_star_deferred_apply_name, g_star_deferred_apply_type);
+		g_star_deferred_apply_frames = 33; /* 33 more re-apply frames (~1 s) */
+	} else if (player && player->mo && (g_star_deferred_apply_health || g_star_deferred_apply_armor)) {
+		/* Re-apply frames: set health/armor to stored target so HUD stays correct. */
+		if (g_star_deferred_apply_health && g_star_deferred_health_value >= 0) {
+			player->health = g_star_deferred_health_value;
+			player->mo->health = g_star_deferred_health_value;
+		}
+		if (g_star_deferred_apply_armor && g_star_deferred_armor_value >= 0) {
+			AActor* arm = player->mo->FindInventory(FName("BasicArmor"), true);
+			if (arm)
+				arm->IntVar(FName("Amount")) = g_star_deferred_armor_value;
+		}
+		g_star_deferred_apply_frames--;
+	} else {
+		g_star_deferred_apply_frames = 0;
+	}
+	if (g_star_deferred_apply_frames <= 0) {
+		g_star_deferred_apply_name.clear();
+		g_star_deferred_apply_type.clear();
+		g_star_deferred_health_value = -1;
+		g_star_deferred_armor_value = -1;
+		g_star_deferred_apply_health = false;
+		g_star_deferred_apply_armor = false;
+		ODOOM_RefreshOverlayFromClient();
 	}
 }
 
@@ -2053,15 +2096,34 @@ int UZDoom_STAR_AlwaysAllowPickup(void) {
 	return 1;
 }
 
-/** Called from a_doors.cpp EV_DoDoor before P_CheckKeys. Log once per lock value to star_api.log so we can tell if E on door reaches EV_DoDoor (if you see this but no "door v2 E on door", a_keys.cpp is not patched). */
+/** Called from a_doors.cpp EV_DoDoor before P_CheckKeys. Log every time (including lock=0) so we see when special 13 runs. */
 void ODOOM_STAR_LogEvDoDoorLock(int lock) {
-	if (lock < 1 || lock > 4) return;
-	static bool logged_lock[5] = {false};
-	if (logged_lock[lock]) return;
-	logged_lock[lock] = true;
 	char buf[80];
 	std::snprintf(buf, sizeof(buf), "[ODOOM STAR] EV_DoDoor lock=%d (before P_CheckKeys)", lock);
 	star_api_log_to_file(buf);
+	Printf(PRINT_HIGH, "%s\n", buf);
+}
+
+void ODOOM_STAR_LogLineDoorKeyCheck(int keynum) {
+	if (keynum < 1 || keynum > 4) return;
+	char buf[80];
+	std::snprintf(buf, sizeof(buf), "[ODOOM STAR] P_ActivateLine door lock=%d (before P_CheckKeys)", keynum);
+	star_api_log_to_file(buf);
+	Printf(PRINT_HIGH, "%s\n", buf);
+}
+
+void ODOOM_STAR_LogActivateLineUse(int activationType, int special, int locknumber) {
+	char buf[140];
+	std::snprintf(buf, sizeof(buf), "[ODOOM STAR] P_ActivateLine activationType=%d special=%d locknumber=%d", activationType, special, locknumber);
+	star_api_log_to_file(buf);
+	Printf(PRINT_HIGH, "%s\n", buf);
+}
+
+void ODOOM_STAR_LogDoorLockedRaiseLock(int lock) {
+	char buf[100];
+	std::snprintf(buf, sizeof(buf), "[ODOOM STAR] Door_LockedRaise (special 13) lock arg=%d", lock);
+	star_api_log_to_file(buf);
+	Printf(PRINT_HIGH, "%s\n", buf);
 }
 
 void UZDoom_STAR_OnBossKilled(const char* boss_name) {

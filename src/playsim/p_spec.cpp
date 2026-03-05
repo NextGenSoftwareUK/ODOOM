@@ -38,6 +38,7 @@
 #include <stdlib.h>
 
 #include "a_keys.h"
+#include "uzdoom_star_integration.h"
 #include "a_sharedglobal.h"
 #include "actorinlines.h"
 #include "d_event.h"
@@ -128,6 +129,7 @@ bool P_ActivateLine (line_t *line, AActor *mo, int side, int activationType, DVe
 	}
 
 	auto Level = line->GetLevel();
+	ODOOM_STAR_LogActivateLineUse(activationType, line->special, line->locknumber);
 
 	// [MK] Use WorldLinePreActivated to decide if activation should continue
 	bool shouldactivate = true;
@@ -135,7 +137,7 @@ bool P_ActivateLine (line_t *line, AActor *mo, int side, int activationType, DVe
 	if ( !shouldactivate ) return false;
 
 	bool remote = (line->special != 7 && line->special != 8 && (line->special < 11 || line->special > 14));
-	if (line->locknumber > 0 && !P_CheckKeys (mo, line->locknumber, remote)) return false;
+	if (line->locknumber > 0) { ODOOM_STAR_LogLineDoorKeyCheck(line->locknumber); if (!P_CheckKeys (mo, line->locknumber, remote)) return false; }
 
 	lineActivation = line->activation;
 	repeat = line->flags & ML_REPEAT_SPECIAL;

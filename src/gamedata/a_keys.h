@@ -29,6 +29,8 @@ class PClassActor;
 
 int P_CheckKeys (AActor *owner, int keynum, bool remote, bool quiet = false);
 int P_IsLockDefined (int lock);
+/** Return the first key class name for this lock (e.g. "RedKey") or nullptr. For STAR/custom lock support. */
+const char *P_GetKeyNameForLock (int locknum);
 void P_InitKeyMessages ();
 int P_GetMapColorForLock (int lock);
 int P_GetMapColorForKey (AActor *key);

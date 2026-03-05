@@ -24,6 +24,7 @@
 */
 
 #include "a_keys.h"
+#include "uzdoom_star_integration.h"
 #include "a_sharedglobal.h"
 #include "d_event.h"
 #include "d_net.h"
@@ -259,6 +260,7 @@ FUNC(LS_Door_Raise)
 FUNC(LS_Door_LockedRaise)
 // Door_LockedRaise (tag, speed, delay, lock, lighttag)
 {
+	ODOOM_STAR_LogDoorLockedRaiseLock(arg3);
 #if 0
 	// In Hexen this originally created a thinker running for nearly 4 years.
 	// Let's not do this unless it becomes necessary because this can hang tagwait.

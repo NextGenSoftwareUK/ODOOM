@@ -533,6 +533,23 @@ int P_IsLockDefined(int keynum)
 	return !!Locks.CheckKey(keynum);
 }
 
+// OASIS STAR: return first key class name for a lock (e.g. "RedKey") so custom locks (129, 130, ...) can be checked against STAR inventory.
+const char *P_GetKeyNameForLock (int locknum)
+{
+	auto lock = Locks.CheckKey(locknum);
+	if (!lock || lock->keylist.Size() == 0) return nullptr;
+	for (unsigned int i = 0; i < lock->keylist.Size(); i++)
+	{
+		const Keygroup &kg = lock->keylist[i];
+		if (kg.anykeylist.Size() > 0)
+		{
+			PClassActor *key = kg.anykeylist[0].key;
+			if (key) return key->TypeName.GetChars();
+		}
+	}
+	return nullptr;
+}
+
 //==========================================================================
 //
 // These functions can be used to get color information for
