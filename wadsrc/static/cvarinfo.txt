@@ -68,4 +68,3 @@ server string odoom_quest_set_active_id = "";
 server int odoom_quest_set_active_do_it = 0;
 
 server int odoom_quest_scroll_offset = 0;
-server int odoom_quest_scroll_offset = 0;
