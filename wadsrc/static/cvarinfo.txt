@@ -69,3 +69,8 @@ server int odoom_quest_set_active_do_it = 0;
 
 server int odoom_quest_scroll_offset = 0;
 server string odoom_star_use_item_description = "";
+
+server string odoom_quest_tracker_quest_id = "";
+server int odoom_quest_filter_not_started = 1;
+server int odoom_quest_filter_in_progress = 1;
+server int odoom_quest_filter_completed = 1;
