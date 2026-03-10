@@ -953,8 +953,8 @@ class OASISInventoryOverlayHandler : EventHandler
 			int col1X = popupX + 8;
 			int col2X = popupX + 8 + 16 * 8;
 			int col3X = popupX + 8 + 22 * 8;
-			int maxQuestRows = (popupH - 80) / rowH;
-			if (maxQuestRows < 8) maxQuestRows = 8;
+			int maxQuestRows = (popupH - 80) / rowH - 3; // show 3 fewer quest rows (1 less visible than previous)
+			if (maxQuestRows < 5) maxQuestRows = 5;
 			screen.DrawText(f, Font.CR_GOLD, popupX + 8, popupY + 4, "QUESTS", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 			String cb1 = (fn != 0) ? "[X] Not Started" : "[ ] Not Started";
 			String cb2 = (fi != 0) ? "[X] In Progress" : "[ ] In Progress";
@@ -1005,13 +1005,13 @@ class OASISInventoryOverlayHandler : EventHandler
 			}
 			else
 				screen.DrawText(f, Font.CR_GRAY, popupX + 8, popupY + 48, "No Quests Found", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
-			screen.DrawText(f, Font.CR_DARKGRAY, popupX + 8, popupY + popupH - 20, "Home/End/PgUp=Filter  Arrows=Select  Enter=Start or Set tracker  Q=Close", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
+			screen.DrawText(f, Font.CR_DARKGRAY, popupX + 8, popupY + popupH - 35, "Home/End/PgUp=Filter  Arrows=Select  Enter=Start or Set tracker  Q=Close", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 			if (questStatusFrames > 0 && questStatusMessage.Length() > 0)
 			{
 				int msgW = f.StringWidth(questStatusMessage);
 				int statusX = popupX + popupW - msgW - 8;
 				if (statusX < popupX + 8) statusX = popupX + 8;
-				screen.DrawText(f, Font.CR_GREEN, statusX, popupY + popupH - 16, questStatusMessage, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
+				screen.DrawText(f, Font.CR_GREEN, statusX, popupY + popupH - 31, questStatusMessage, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 			}
 			if (scrollCv != null) scrollCv.SetInt(newScrollOffset);
 			return;
