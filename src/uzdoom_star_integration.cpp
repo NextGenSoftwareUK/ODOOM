@@ -1394,12 +1394,13 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		int home  = ODOOM_GetRawKeyDown(ODOOM_K_HOME);
 		int endkey= ODOOM_GetRawKeyDown(ODOOM_K_END);
 		int q     = ODOOM_GetRawKeyDown('Q');
-		int key1  = ODOOM_GetRawKeyDown('1');
-		int key2  = ODOOM_GetRawKeyDown('2');
-		int key3  = ODOOM_GetRawKeyDown('3');
+		/* Use uppercase so GetAsyncKeyState gets correct VK (0x42/0x4E/0x4D on Windows) */
+		int keyB  = ODOOM_GetRawKeyDown('B');
+		int keyN  = ODOOM_GetRawKeyDown('N');
+		int keyM  = ODOOM_GetRawKeyDown('M');
 		/* Merge Enter into use so ZScript sees keyUsePressed for both E and Enter (confirm/close) */
 		use = (use || enter) ? 1 : 0;
-		ODOOM_InventorySetKeyState(up, down, left, right, use, a, c, z, x, i, o, p, q, enter, pgup, pgdown, home, endkey, key1, key2, key3);
+		ODOOM_InventorySetKeyState(up, down, left, right, use, a, c, z, x, i, o, p, q, enter, pgup, pgdown, home, endkey, keyB, keyN, keyM);
 		/* Quest popup is driven by ZScript only (same as inventory I key): ZScript reads odoom_key_q and toggles; C++ does not set odoom_quest_popup_open. */
 	}
 
@@ -1693,7 +1694,7 @@ void ODOOM_PostTic(void)
 }
 
 /** Called from engine input code when building ticcmd: set key state CVars for ZScript. */
-void ODOOM_InventorySetKeyState(int up, int down, int left, int right, int use, int a, int c, int z, int x, int i, int o, int p, int q, int enter, int pgup, int pgdown, int home, int endkey, int key1, int key2, int key3)
+void ODOOM_InventorySetKeyState(int up, int down, int left, int right, int use, int a, int c, int z, int x, int i, int o, int p, int q, int enter, int pgup, int pgdown, int home, int endkey, int keyB, int keyN, int keyM)
 {
 	UCVarValue val;
 	FBaseCVar* v;
@@ -1706,9 +1707,9 @@ void ODOOM_InventorySetKeyState(int up, int down, int left, int right, int use, 
 	SET_KEY_CVAR("odoom_key_pgdown", pgdown);
 	SET_KEY_CVAR("odoom_key_home", home);
 	SET_KEY_CVAR("odoom_key_end", endkey);
-	SET_KEY_CVAR("odoom_key_1", key1);
-	SET_KEY_CVAR("odoom_key_2", key2);
-	SET_KEY_CVAR("odoom_key_3", key3);
+	SET_KEY_CVAR("odoom_key_b", keyB);
+	SET_KEY_CVAR("odoom_key_n", keyN);
+	SET_KEY_CVAR("odoom_key_m", keyM);
 	SET_KEY_CVAR("odoom_key_use", use);
 	SET_KEY_CVAR("odoom_key_a", a);
 	SET_KEY_CVAR("odoom_key_c", c);

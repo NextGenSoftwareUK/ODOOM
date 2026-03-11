@@ -78,3 +78,7 @@ server int odoom_quest_filter_completed = 1;
 server int odoom_key_1 = 0;
 server int odoom_key_2 = 0;
 server int odoom_key_3 = 0;
+
+server int odoom_key_b = 0;
+server int odoom_key_n = 0;
+server int odoom_key_m = 0;
