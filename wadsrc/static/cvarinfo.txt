@@ -74,3 +74,7 @@ server string odoom_quest_tracker_quest_id = "";
 server int odoom_quest_filter_not_started = 1;
 server int odoom_quest_filter_in_progress = 1;
 server int odoom_quest_filter_completed = 1;
+
+server int odoom_key_1 = 0;
+server int odoom_key_2 = 0;
+server int odoom_key_3 = 0;
