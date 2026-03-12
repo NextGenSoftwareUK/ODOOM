@@ -82,3 +82,8 @@ server int odoom_key_3 = 0;
 server int odoom_key_b = 0;
 server int odoom_key_n = 0;
 server int odoom_key_m = 0;
+
+server string odoom_quest_detail_quest_id = "";
+server string odoom_quest_detail_prereqs = "";
+server string odoom_quest_detail_objectives = "";
+server string odoom_quest_detail_subquests = "";
