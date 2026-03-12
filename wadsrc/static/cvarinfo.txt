@@ -87,3 +87,5 @@ server string odoom_quest_detail_quest_id = "";
 server string odoom_quest_detail_prereqs = "";
 server string odoom_quest_detail_objectives = "";
 server string odoom_quest_detail_subquests = "";
+
+server int odoom_key_backspace = 0;
