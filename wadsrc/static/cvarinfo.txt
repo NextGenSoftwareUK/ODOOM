@@ -93,3 +93,5 @@ server int odoom_key_backspace = 0;
 server int odoom_key_v = 0;
 
 server int odoom_key_k = 0;
+
+server string odoom_quest_selected_id = "";

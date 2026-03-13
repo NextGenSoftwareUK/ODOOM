@@ -762,7 +762,7 @@ static void ODOOM_RefreshOverlayFromClient(void) {
 
 static void StarLogInfo(const char* fmt, ...);
 
-/** Fetch quests from API and push to CVars. Sets odoom_quest_list, odoom_quest_count. Tracker shows quest only when odoom_quest_tracker_quest_id is set (user selected a quest); no default to first quest. */
+/** Fetch quests from API and push to CVars. Sets odoom_quest_list, odoom_quest_count. Uses top-level quests only (like Quake) so main list shows parents; sub-quests appear in detail panel. Tracker shows quest only when odoom_quest_tracker_quest_id is set. */
 static void ODOOM_RefreshQuestCVars(void) {
 	FBaseCVar* listVar = FindCVar("odoom_quest_list", nullptr);
 	FBaseCVar* countVar = FindCVar("odoom_quest_count", nullptr);
@@ -772,7 +772,7 @@ static void ODOOM_RefreshQuestCVars(void) {
 	if (!listVar || !countVar) return;
 
 	static char questBuf[ODOOM_QUEST_LIST_MAX_BYTES];
-	int n = star_api_get_quests_string(questBuf, sizeof(questBuf));
+	int n = star_api_get_top_level_quests_string(questBuf, sizeof(questBuf));
 	if (n < 0 || !g_star_initialized) {
 		UCVarValue v; v.String = (char*)"";
 		listVar->SetGenericRep(v, CVAR_String);
@@ -1510,6 +1510,31 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		/* Merge Enter into use so ZScript sees keyUsePressed for both E and Enter (confirm/close) */
 		use = (use || enter) ? 1 : 0;
 		ODOOM_InventorySetKeyState(up, down, left, right, use, a, c, z, x, i, o, p, q, enter, pgup, pgdown, home, endkey, keyB, keyN, keyM, keyK, backspace);
+		/* K = Start/Set quest: drive from C++ using odoom_quest_selected_id (ZScript sets every frame) so we don't rely on one-frame CVar handoff. */
+		{
+			static int s_key_k_was_down = 0;
+			if (g_star_initialized && keyK)
+			{
+				FBaseCVar* questPopupVar = FindCVar("odoom_quest_popup_open", nullptr);
+				int qOpen = (questPopupVar && questPopupVar->GetRealType() == CVAR_Int && questPopupVar->GetGenericRep(CVAR_Int).Int != 0);
+				if (!s_key_k_was_down && qOpen)
+				{
+					FBaseCVar* selIdVar = FindCVar("odoom_quest_selected_id", nullptr);
+					if (selIdVar && selIdVar->GetRealType() == CVAR_String)
+					{
+						const char* id = selIdVar->GetGenericRep(CVAR_String).String;
+						if (id && id[0])
+						{
+							star_api_start_quest(id);
+							ODOOM_RefreshQuestCVars();
+						}
+					}
+				}
+				s_key_k_was_down = 1;
+			}
+			else
+				s_key_k_was_down = 0;
+		}
 		/* Quest popup is driven by ZScript only (same as inventory I key): ZScript reads odoom_key_q and toggles; C++ does not set odoom_quest_popup_open. */
 	}
 

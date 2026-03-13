@@ -317,6 +317,23 @@ class OASISInventoryOverlayHandler : EventHandler
 			int qCount = filteredIndices.Size();
 			int maxQuestRowsKey = (200 - 80) / 12 - 4; // match maxQuestRows (one fewer for 2-line hint)
 			if (maxQuestRowsKey < 5) maxQuestRowsKey = 5;
+			// So C++ can react to K without relying on one-frame CVar handoff: set selected quest id every frame.
+			CVar selectedIdCv = CVar.FindCVar("odoom_quest_selected_id");
+			if (questDetailPopupOpen && questDetailQuestId.Length() > 0)
+			{
+				if (selectedIdCv != null) selectedIdCv.SetString(questDetailQuestId);
+			}
+			else
+			{
+				String selId = "";
+				if (qCount > 0 && questSelectedIndex >= 0 && questSelectedIndex < filteredIndices.Size() && filteredIndices[questSelectedIndex] >= 0 && filteredIndices[questSelectedIndex] < questLines.Size())
+				{
+					array<String> parts;
+					questLines[filteredIndices[questSelectedIndex]].Split(parts, "\t", false);
+					if (parts.Size() >= 2) selId = parts[1];
+				}
+				if (selectedIdCv != null) selectedIdCv.SetString(selId);
+			}
 			if (qCount > 0 && !questDetailPopupOpen)
 			{
 				if (keyDownPressed) { questSelectedIndex++; if (questSelectedIndex >= qCount) questSelectedIndex = qCount - 1; }
