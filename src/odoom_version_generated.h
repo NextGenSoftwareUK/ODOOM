@@ -5,7 +5,7 @@
 #define ODOOM_VERSION_GENERATED_H
 
 #define ODOOM_VERSION "1.0"
-#define ODOOM_BUILD   "129"
+#define ODOOM_BUILD   "133"
 #define ODOOM_VERSION_STR ODOOM_VERSION " (Build " ODOOM_BUILD ")"
 
 #endif
