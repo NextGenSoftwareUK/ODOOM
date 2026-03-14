@@ -99,3 +99,11 @@ server string odoom_quest_selected_id = "";
 server int odoom_key_s = 0;
 server string odoom_quest_detail_selected_objective_id = "";
 server string odoom_quest_detail_requirements = "";
+
+server int odoom_key_t = 0;
+server int odoom_quest_tracker_show = 1;
+server int odoom_quest_tracker_objective_index = 0;
+server string odoom_quest_tracker_objectives = "";
+server int odoom_quest_tracker_active_index = 0;
+
+server string odoom_quest_tracker_active_objective_id = "";
