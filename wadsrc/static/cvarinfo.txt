@@ -95,3 +95,7 @@ server int odoom_key_v = 0;
 server int odoom_key_k = 0;
 
 server string odoom_quest_selected_id = "";
+
+server int odoom_key_s = 0;
+server string odoom_quest_detail_selected_objective_id = "";
+server string odoom_quest_detail_requirements = "";
