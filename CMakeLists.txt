@@ -408,9 +408,33 @@ if (HAVE_VULKAN)
 endif()
 
 set(ZWIDGET_BUILD_EXAMPLE OFF CACHE INTERNAL "" FORCE)
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( libraries/ZWidget )
 
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( libraries/webp )
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
 
 add_subdirectory( libraries/discordrpc EXCLUDE_FROM_ALL )
 set( DRPC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libraries/discordrpc/include" )
@@ -499,13 +523,77 @@ install(DIRECTORY docs/
 
 option( DYN_OPENAL "Dynamically load OpenAL" ON )
 
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( src )
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( libraries/lzma )
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( tools )
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( wadsrc )
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( wadsrc_bm )
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( wadsrc_lights )
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( wadsrc_extra )
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( wadsrc_widepix )
 
 if( ZMUSIC_SYSTEM_INSTALL )

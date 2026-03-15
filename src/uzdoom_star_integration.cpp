@@ -538,8 +538,8 @@ static bool ODOOM_LoadJsonConfig(const char* json_path) {
 			g_odoom_mint_monster_flags[ODOOM_MONSTERS[i].configKey] = 1;  /* default 1 */
 		loaded = true;
 	}
-	/* Persisted session (username + JWT) so user stays logged in between sessions. */
-	if (ODOOM_ExtractJsonValue(json, "saved_username", value, (int)sizeof(value)) && value[0]) {
+	/* Persisted session for autologin (beamedin_avatar + jwt_token). Fallback to old keys for compatibility. */
+	if (((ODOOM_ExtractJsonValue(json, "beamedin_avatar", value, (int)sizeof(value)) || ODOOM_ExtractJsonValue(json, "saved_username", value, (int)sizeof(value))) && value[0])) {
 		std::strncpy(g_odoom_saved_username, value, sizeof(g_odoom_saved_username) - 1);
 		g_odoom_saved_username[sizeof(g_odoom_saved_username) - 1] = '\0';
 		loaded = true;
@@ -547,7 +547,7 @@ static bool ODOOM_LoadJsonConfig(const char* json_path) {
 	{
 		char value_jwt[2048];
 		value_jwt[0] = '\0';
-		if (ODOOM_ExtractJsonValue(json, "saved_jwt", value_jwt, (int)sizeof(value_jwt)) && value_jwt[0]) {
+		if ((ODOOM_ExtractJsonValue(json, "jwt_token", value_jwt, (int)sizeof(value_jwt)) || ODOOM_ExtractJsonValue(json, "saved_jwt", value_jwt, (int)sizeof(value_jwt))) && value_jwt[0]) {
 			std::strncpy(g_odoom_saved_jwt, value_jwt, sizeof(g_odoom_saved_jwt) - 1);
 			g_odoom_saved_jwt[sizeof(g_odoom_saved_jwt) - 1] = '\0';
 			loaded = true;
@@ -640,17 +640,25 @@ static bool ODOOM_SaveJsonConfig(const char* json_path) {
 	}
 	int nmonsters = 0;
 	while (ODOOM_MONSTERS[nmonsters].engineName) nmonsters++;
-	/* Persisted session (username + JWT) so user stays logged in between sessions. */
+	/* Persisted session (beamedin_avatar + jwt_token) for autologin. */
 	if (g_star_initialized) {
 		char uname[128] = {};
 		char jwt[2048] = {};
 		if (star_api_get_current_username(uname, sizeof(uname)) > 0 && uname[0]) {
 			std::strncpy(g_odoom_saved_username, uname, sizeof(g_odoom_saved_username) - 1);
 			g_odoom_saved_username[sizeof(g_odoom_saved_username) - 1] = '\0';
+		} else if (!g_star_effective_username.empty()) {
+			/* Fallback: DLL may not export get_current_username; use current session username so beamedin_avatar is written. */
+			std::strncpy(g_odoom_saved_username, g_star_effective_username.c_str(), sizeof(g_odoom_saved_username) - 1);
+			g_odoom_saved_username[sizeof(g_odoom_saved_username) - 1] = '\0';
 		}
 		if (star_api_get_current_jwt(jwt, sizeof(jwt)) > 0 && jwt[0]) {
 			std::strncpy(g_odoom_saved_jwt, jwt, sizeof(g_odoom_saved_jwt) - 1);
 			g_odoom_saved_jwt[sizeof(g_odoom_saved_jwt) - 1] = '\0';
+		} else if (g_odoom_saved_username[0]) {
+			static int s_odoom_jwt_missing_logged = 0;
+			if (s_odoom_jwt_missing_logged++ == 0)
+				Printf(PRINT_HIGH, "STAR API: Could not get JWT (autologin may not work). Rebuild STARAPIClient and run BUILD_AND_DEPLOY_STAR_CLIENT.bat so star_api.dll exports session APIs.\n");
 		}
 	}
 	const bool have_session = g_odoom_saved_username[0] || g_odoom_saved_jwt[0];
@@ -662,7 +670,7 @@ static bool ODOOM_SaveJsonConfig(const char* json_path) {
 	}
 	if (have_session) {
 		if (g_odoom_saved_username[0]) {
-			fprintf(f, "  \"saved_username\": \"");
+			fprintf(f, "  \"beamedin_avatar\": \"");
 			for (const char* p = g_odoom_saved_username; *p; p++) {
 				if (*p == '"' || *p == '\\') fputc('\\', f);
 				fputc((unsigned char)*p, f);
@@ -671,7 +679,7 @@ static bool ODOOM_SaveJsonConfig(const char* json_path) {
 		}
 		if (g_odoom_saved_jwt[0]) {
 			if (g_odoom_saved_username[0]) fprintf(f, ",\n");
-			fprintf(f, "  \"saved_jwt\": \"");
+			fprintf(f, "  \"jwt_token\": \"");
 			for (const char* p = g_odoom_saved_jwt; *p; p++) {
 				if (*p == '"' || *p == '\\') fputc('\\', f);
 				fputc((unsigned char)*p, f);
@@ -1267,6 +1275,11 @@ static void ODOOM_OnAuthDone(void* user_data) {
 					v->SetGenericRep(u, CVAR_String);
 				}
 			}
+			/* Start loading quest list so tracker title/objective show without opening popup (ODOOM_RefreshQuestCVars will use cache when ready). */
+#ifdef ODOOM_STAR_API_HAS_REFRESH_QUEST_BACKGROUND
+			star_api_refresh_quest_cache_in_background();
+#endif
+			ODOOM_RefreshQuestCVars();  /* push once immediately in case cache already has data */
 		}
 		/* Persist session to oasisstar.json immediately so we stay logged in after restart (or if game crashes before exit). */
 		ODOOM_SaveStarConfigToFiles();
@@ -1830,6 +1843,38 @@ void ODOOM_InventoryInputCaptureFrame(void)
 			}
 			/* Refresh detail popup lists (prereqs, objectives, subquests) when 2nd popup is open (ZScript sets odoom_quest_detail_quest_id). */
 			ODOOM_RefreshQuestDetailCVars();
+		} else {
+			/* Tracker HUD: when popup is closed, set tracker from API if we have active quest (e.g. after restore session) and tracker not set yet. */
+			FBaseCVar* trackerIdVar = FindCVar("odoom_quest_tracker_quest_id", nullptr);
+			const char* trackerId = (trackerIdVar && trackerIdVar->GetRealType() == CVAR_String) ? trackerIdVar->GetGenericRep(CVAR_String).String : nullptr;
+			if (!trackerId || !trackerId[0]) {
+				char qid[64] = {};
+				char oid[64] = {};
+				if (star_api_get_active_quest_id(qid, sizeof(qid)) && qid[0]) {
+					if (trackerIdVar && trackerIdVar->GetRealType() == CVAR_String) {
+						UCVarValue u; u.String = qid;
+						trackerIdVar->SetGenericRep(u, CVAR_String);
+					}
+					if (star_api_get_active_objective_id(oid, sizeof(oid)) && oid[0]) {
+						FBaseCVar* oidVar = FindCVar("odoom_quest_tracker_active_objective_id", nullptr);
+						if (oidVar && oidVar->GetRealType() == CVAR_String) {
+							UCVarValue u; u.String = oid;
+							oidVar->SetGenericRep(u, CVAR_String);
+						}
+					}
+#ifdef ODOOM_STAR_API_HAS_REFRESH_QUEST_BACKGROUND
+					star_api_refresh_quest_cache_in_background();
+#endif
+					ODOOM_RefreshQuestCVars();
+				}
+			} else {
+				/* Tracker id already set: refresh CVars periodically so tracker shows correct name/objective without opening popup (like Quake). */
+				static int s_tracker_refresh_frames = 0;
+				if (++s_tracker_refresh_frames >= 60) {
+					s_tracker_refresh_frames = 0;
+					ODOOM_RefreshQuestCVars();
+				}
+			}
 		}
 	}
 
