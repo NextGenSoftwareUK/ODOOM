@@ -480,6 +480,34 @@ if(OASIS_STAR_API)
   add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
 endif()
 
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( libraries/ZWidget )
 
 if(OASIS_STAR_API)
@@ -554,7 +582,63 @@ if(OASIS_STAR_API)
   add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
 endif()
 
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( libraries/webp )
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
 
 if(OASIS_STAR_API)
   add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
@@ -787,7 +871,63 @@ if(OASIS_STAR_API)
   add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
 endif()
 
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( src )
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 if(OASIS_STAR_API)
   add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
 endif()
@@ -933,7 +1073,63 @@ if(OASIS_STAR_API)
   add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
 endif()
 
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( tools )
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 if(OASIS_STAR_API)
   add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
 endif()
@@ -1079,7 +1275,63 @@ if(OASIS_STAR_API)
   add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
 endif()
 
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( wadsrc_bm )
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 if(OASIS_STAR_API)
   add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
 endif()
@@ -1225,7 +1477,63 @@ if(OASIS_STAR_API)
   add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
 endif()
 
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 add_subdirectory( wadsrc_extra )
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
+if(OASIS_STAR_API)
+  add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
+endif()
+
 if(OASIS_STAR_API)
   add_compile_definitions(OASIS_STAR_API ODOOM_STAR_API_SESSION_IMPL)
 endif()
