@@ -10,7 +10,13 @@
  * All completion callbacks are invoked on the main thread when you call star_sync_pump().
  * Call star_sync_pump() once per frame; no per-frame polling of individual operations.
  *
- * Include star_api.h before this header. Link with star_sync.c (or build as lib) and star_api.
+ * Include star_api.h before this header.
+ *
+ * Build options:
+ * - Default: compile and link star_sync.c (C implementation). Link star_api.
+ * - Define OASIS_STAR_SYNC_IN_CLIENT: do NOT compile star_sync.c; star_sync_* symbols are
+ *   exported from star_api.dll. Link only star_api. To switch back to the C implementation,
+ *   undefine OASIS_STAR_SYNC_IN_CLIENT and add star_sync.c to the build again.
  */
 
 #ifndef STAR_SYNC_H
@@ -23,6 +29,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** Optional callback invoked after add_item (single or batch): (item_name, success, error_message, user_data). Called from main thread. */
+typedef void (*star_sync_add_item_log_fn)(const char* item_name, int success, const char* error_message, void* user_data);
+
+/** Set optional callback for add_item results (e.g. for debug logging). Pass NULL to clear. */
+void star_sync_set_add_item_log_cb(star_sync_add_item_log_fn cb, void* user_data);
 
 /** Call once at game startup (e.g. from OQuake_STAR_Init). Required on Windows to initialize locks. */
 void star_sync_init(void);
