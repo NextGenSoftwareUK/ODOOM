@@ -101,12 +101,8 @@ extern "C" void star_sync_inventory_deliver_result(star_item_list_t* list, star_
 #endif
 #define ODOOM_K_HOME      GK_HOME
 #define ODOOM_K_END       GK_END
-#if defined(GK_BACKSPACE)
-#define ODOOM_K_BACKSPACE GK_BACKSPACE
-#else
-/* uzdoom d_gui.h uses 8 for BACKSPACE; ODOOM_GetRawKeyDown maps 8 -> SDL_SCANCODE_BACKSPACE. GK_BACKSPACE may be absent on some Linux builds. */
+/* Always use d_gui.h ASCII control value 8 for backspace on POSIX. GK_BACKSPACE can differ from 8 on some engine builds, which broke SDL mapping in ODOOM_GetRawKeyDown. */
 #define ODOOM_K_BACKSPACE 8
-#endif
 #endif
 
 /* Forward declaration so code before the definition (e.g. ODOOM_SaveJsonConfig) can call StarLogInfo. */
@@ -934,6 +930,9 @@ static int ODOOM_GetRawKeyDown(int vk_or_ascii)
 	else if (vk_or_ascii == 10) scancode = SDL_SCANCODE_DOWN;
 	else if (vk_or_ascii == 11) scancode = SDL_SCANCODE_UP;
 	else if (vk_or_ascii == 13) scancode = SDL_SCANCODE_RETURN;
+#if defined(GK_BACKSPACE)
+	else if (vk_or_ascii == GK_BACKSPACE) scancode = SDL_SCANCODE_BACKSPACE;
+#endif
 	return (scancode >= 0 && scancode < SDL_NUM_SCANCODES && state[scancode]) ? 1 : 0;
 #endif
 }
@@ -1502,10 +1501,7 @@ static void ODOOM_OnAuthDone(void* user_data) {
 					}
 				}
 			}
-			/* Start loading quest list so tracker title/objective show without opening popup (ODOOM_RefreshQuestCVars will use cache when ready). */
-#ifdef ODOOM_STAR_API_HAS_REFRESH_QUEST_BACKGROUND
-			star_api_refresh_quest_cache_in_background();
-#endif
+			/* Quest list fetch: avoid duplicate GET — AuthenticateAsync already Invalidate+Request; JWT restore uses profile-loaded path below. */
 			ODOOM_RefreshQuestCVars();  /* push once immediately in case cache already has data */
 		}
 		/* Persist session to oasisstar.json immediately so we stay logged in after restart (or if game crashes before exit). */
@@ -1993,6 +1989,7 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		C_DoCommand("bind home \"\"");
 		C_DoCommand("bind end \"\"");
 		C_DoCommand("bind K \"\"");  /* K = Start quest / Set tracker in quest popup; prevent engine from using it */
+		C_DoCommand("bind backspace \"\"");
 		C_DoCommand("bind \"1\" \"\"");
 		C_DoCommand("bind \"2\" \"\"");
 		C_DoCommand("bind \"3\" \"\"");
@@ -2022,6 +2019,7 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		C_DoCommand("bind \"KP-Enter\" \"+use\"");
 		C_DoCommand("bind Q \"odoom_quest_toggle\"");  /* Q opens quest popup (fallback if raw key not available) */
 		C_DoCommand("bind K \"\"");  /* leave K unbound so user can bind for quest Start/Set if desired */
+		C_DoCommand("bind backspace \"\"");  /* engine default is often unbound; user may bind menu_main etc. in cfg */
 		C_DoCommand("bind pgup \"\"");
 		C_DoCommand("bind pgdn \"\"");
 		C_DoCommand("bind home \"\"");
@@ -2064,6 +2062,27 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		/* Merge Enter into use so ZScript sees keyUsePressed for both E and Enter (confirm/close) */
 		use = (use || enter) ? 1 : 0;
 		ODOOM_InventorySetKeyState(up, down, left, right, use, a, c, z, x, i, o, p, keyS, keyT, q, enter, pgup, pgdown, home, endkey, keyB, keyN, keyM, keyK, keyV, backspace);
+		/* B/X/Z HUD toggles from raw keys here so they work even if ZScript tick/CVar ordering fails; ZScript duplicate removed. */
+		{
+			FBaseCVar* sendOpenVar2 = FindCVar("odoom_send_popup_open", nullptr);
+			const bool sendPopupOpen2 = (sendOpenVar2 && sendOpenVar2->GetRealType() == CVAR_Int && sendOpenVar2->GetGenericRep(CVAR_Int).Int != 0);
+			static int s_odoom_hud_prev_b = 0, s_odoom_hud_prev_x = 0, s_odoom_hud_prev_z = 0;
+			auto flipHudInt = [](const char* cvarName) {
+				FBaseCVar* hv = FindCVar(cvarName, nullptr);
+				if (!hv || hv->GetRealType() != CVAR_Int) return;
+				UCVarValue u = hv->GetGenericRep(CVAR_Int);
+				u.Int = (u.Int != 0) ? 0 : 1;
+				hv->SetGenericRep(u, CVAR_Int);
+			};
+			if (!anyPopupOpen && !sendPopupOpen2) {
+				if (keyB && !s_odoom_hud_prev_b) flipHudInt("odoom_hud_show_beamed");
+				if (x && !s_odoom_hud_prev_x) flipHudInt("odoom_hud_show_xp");
+				if (z && !s_odoom_hud_prev_z) flipHudInt("odoom_hud_show_timer");
+			}
+			s_odoom_hud_prev_b = keyB ? 1 : 0;
+			s_odoom_hud_prev_x = x ? 1 : 0;
+			s_odoom_hud_prev_z = z ? 1 : 0;
+		}
 		/* K = Start/Set quest: drive from C++ using odoom_quest_selected_id (ZScript sets every frame) so we don't rely on one-frame CVar handoff. */
 		{
 			static int s_key_k_was_down = 0;
@@ -2192,9 +2211,10 @@ void ODOOM_InventoryInputCaptureFrame(void)
 							oidVar->SetGenericRep(u, CVAR_String);
 						}
 					}
-#ifdef ODOOM_STAR_API_HAS_REFRESH_QUEST_BACKGROUND
-					star_api_refresh_quest_cache_in_background();
-#endif
+					/* Do not call star_api_refresh_quest_cache_in_background here: that forces RequestQuestCacheRefreshInBackground
+					 * (full GET all-for-avatar) every time this block runs. If the tracker CVar stayed empty/placeholder for
+					 * multiple frames (ordering, ZScript), that spammed quest reload during play. Cold cache is filled via
+					 * EnsureQuestsCacheInBackground when get_top_level_quests_string misses (ODOOM_RefreshQuestCVars). */
 					ODOOM_RefreshQuestCVars();
 				}
 			} else {
@@ -3247,7 +3267,9 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 				return;
 			}
 			if (!odoom_star_always_add_items_to_inventory) {
+				/* At max with allow_if_max=0 we skip STAR inventory, but the engine still consumed the world pickup — report quest progress. */
 				if (isHealthItem && g_star_pre_touch_health >= config_max_health && !allow_if_max) {
+					ODOOM_QueueQuestProgressForConsumedPickup(name, itemType);
 					g_star_has_pending_item = false;
 					g_star_pending_item_name.clear();
 					g_star_pending_item_desc.clear();
@@ -3256,6 +3278,21 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 					return;
 				}
 				if (isArmorItem && g_star_pre_touch_armor >= config_max_armor && !allow_if_max) {
+					ODOOM_QueueQuestProgressForConsumedPickup(name, itemType);
+					g_star_has_pending_item = false;
+					g_star_pending_item_name.clear();
+					g_star_pending_item_desc.clear();
+					g_star_pending_item_type.clear();
+					g_star_pending_item_amount = 1;
+					return;
+				}
+				/*
+				 * Armor pickups: PostTouch can run before BasicArmor.Amount updates in the same tic (health often bumps first).
+				 * If we fall through, debounce or add_item may never run — no quest delta. Treat armor like consumed when
+				 * always_add_items=0: report quest progress and skip STAR row (engine applied armor in-world).
+				 */
+				if (isArmorItem && !odoom_star_always_add_items_to_inventory && !consumedArmor) {
+					ODOOM_QueueQuestProgressForConsumedPickup(name, itemType);
 					g_star_has_pending_item = false;
 					g_star_pending_item_name.clear();
 					g_star_pending_item_desc.clear();
@@ -3272,14 +3309,19 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 			g_star_pre_touch_health, name ? name : "", itemType ? itemType : "");
 	}
 
-	/* Debounce generic/weapon pickups so standing on a stimpack (etc.) doesn't spam: only queue same item once per 0.5s. */
+	/* Debounce generic/weapon pickups so standing on a stimpack (etc.) doesn't spam: only queue same item once per 0.5s.
+	 * Health/armor are excluded — otherwise a clip then armor (or two armor types) within the window drops the second pickup entirely. */
 	if (keynum == STAR_PICKUP_GENERIC_ITEM || keynum == STAR_PICKUP_WEAPON) {
 		std::string key = std::string(name) + "|" + (itemType ? itemType : "Item");
 		int now = I_GetTime();
-		if (key == g_star_last_generic_key && (now - g_star_last_generic_tic) < g_star_generic_debounce_ticks)
+		const bool debounceExempt = itemType && (strstr(itemType, "Health") || strstr(itemType, "health") ||
+			strstr(itemType, "Armor") || strstr(itemType, "armor"));
+		if (!debounceExempt && key == g_star_last_generic_key && (now - g_star_last_generic_tic) < g_star_generic_debounce_ticks)
 			return;
-		g_star_last_generic_key = key;
-		g_star_last_generic_tic = now;
+		if (!debounceExempt) {
+			g_star_last_generic_key = key;
+			g_star_last_generic_tic = now;
+		}
 	}
 
 	/* C# client does all heavy lifting: queue pickup (mint if enabled, then add_item) or queue add_item only. */
