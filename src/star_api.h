@@ -52,12 +52,10 @@ typedef void (*star_api_callback_t)(star_api_result_t result, void* user_data);
 /** Operation type for star_api_set_operation_callback. Game can run "profile loaded" only when type is STAR_API_OP_PROFILE_LOADED. Other values (1-27) identify get_avatar_id, has_item, get_inventory, etc.; see StarApiClient.cs StarApiOp* constants. */
 #define STAR_API_OP_PROFILE_LOADED 0
 #define STAR_API_OP_GET_INVENTORY 3
-/** C# updated quest cache after GET all-for-avatar/game (progress refresh, popup refresh, or cold load). Re-push tracker/popup CVars. */
 #define STAR_API_OP_QUESTS_CACHE_REFRESHED 28
 typedef void (*star_api_operation_callback_t)(star_api_result_t result, int operation_type, void* user_data);
 
 star_api_result_t star_api_init(const star_api_config_t* config);
-/** After progress POST: 0 = merge tallies into local quest cache (default, no GET). 1 = full GET all quests each time. Safe after star_api_init; games set from oasisstar.json quest_progress_refresh. */
 void star_api_set_quest_progress_cache_refresh(int mode);
 star_api_result_t star_api_authenticate(const char* username, const char* password);
 /** Same as star_api_authenticate but on success writes JWT to jwt_buf (for oasisstar.json). jwt_buf can be NULL. */
@@ -117,6 +115,9 @@ int star_api_get_tracker_quest_name(char* buf, size_t buf_size);
 int star_api_get_quest_sub_quests_string(const char* parent_quest_id, char* buf, size_t buf_size);
 /** Write serialized objectives from the quest's Objectives collection for parent_quest_id to buf for right panel. Same format as star_api_get_quests_string. parent_quest_id must be non-NULL. */
 int star_api_get_quest_objectives_string(const char* parent_quest_id, char* buf, size_t buf_size);
+/** Incremented when on-demand objective fetch merges into cache; games may re-fetch objectives when this changes. */
+#define STAR_API_HAS_QUEST_OBJECTIVES_CACHE_VERSION 1
+int star_api_get_quest_objectives_cache_version(void);
 /** Write serialized prerequisite quests (id, name, desc) for the given quest_id to buf for right panel. Same format as star_api_get_quests_string. quest_id must be non-NULL. */
 int star_api_get_quest_prereqs_string(const char* quest_id, char* buf, size_t buf_size);
 /** Write requirement/progress lines for quest (and optional objective_id) to buf. One line per requirement e.g. "Killed 3/10 monsters in ODOOM". objective_id may be NULL for quest-level only. */

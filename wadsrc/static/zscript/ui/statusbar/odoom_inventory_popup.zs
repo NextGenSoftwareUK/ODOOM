@@ -1,3 +1,7 @@
+// CANONICAL ZScript for ODOOM: BUILD_ODOOM.sh / BUILD ODOOM.bat copies THIS file to
+// $UZDOOM_SRC/wadsrc/static/zscript/ui/statusbar/odoom_inventory_popup.zs before UZDoom compiles zscript.
+// Editing only the OASIS Omniverse/ODOOM copy then building UZDoom without that copy step = stale HUD (e.g. old right timer).
+
 class OASISInventoryOverlayHandler : EventHandler
 {
 	private bool popupOpen;
@@ -299,7 +303,7 @@ class OASISInventoryOverlayHandler : EventHandler
 				else showCv.SetInt(1);
 			}
 		}
-		/* B/X/Z HUD: engine bind -> odoom_hud_toggle_* (C++ CCMD), same pattern as Q -> odoom_quest_toggle. Raw odoom_key_b is still used below for quest filters when this bind is cleared. */
+		/* B/X/Z HUD: C++ edge-trigger from raw keys (odoom_key_b/x/z) — keys unbound; odoom_hud_toggle_* CCMDs exist for console only. Raw odoom_key_b still used for quest filters in popup. */
 		if (questPopupOpen)
 		{
 			if (keyBackspacePressed && !questDetailPopupOpen)
@@ -1212,7 +1216,8 @@ class OASISInventoryOverlayHandler : EventHandler
 	}
 
 	// Word-wrap with hard breaks for tokens wider than maxW (plain space-split leaves long URLs as one line).
-	private void DrawWrappedWords(Screen s, Font font, int cr, int x0, int y0, int maxW, int rowH, int maxLines, array<String> words)
+	// ui: RenderOverlay only — uses global `screen` (no Screen type in ui context).
+	private ui void DrawWrappedWords(Font font, int cr, int x0, int y0, int maxW, int rowH, int maxLines, array<String> words)
 	{
 		String line = "";
 		int ly = y0;
@@ -1230,7 +1235,7 @@ class OASISInventoryOverlayHandler : EventHandler
 				}
 				if (line.Length() > 0)
 				{
-					s.DrawText(font, cr, x0, ly, line, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
+					screen.DrawText(font, cr, x0, ly, line, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 					ly += rowH;
 					nlines++;
 					line = "";
@@ -1244,14 +1249,14 @@ class OASISInventoryOverlayHandler : EventHandler
 					else hi = mid - 1;
 				}
 				if (best < 1) best = 1;
-				s.DrawText(font, cr, x0, ly, w.Left(best), DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
+				screen.DrawText(font, cr, x0, ly, w.Left(best), DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 				ly += rowH;
 				nlines++;
 				w = w.Mid(best);
 			}
 		}
 		if (line.Length() > 0 && nlines < maxLines)
-			s.DrawText(font, cr, x0, ly, line, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
+			screen.DrawText(font, cr, x0, ly, line, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 	}
 
 	private ui String ItemDisplayName(Inventory item)
@@ -1271,30 +1276,7 @@ class OASISInventoryOverlayHandler : EventHandler
 
 		Font f = "SmallFont";
 
-		CVar showTimerCv = CVar.FindCVar("odoom_hud_show_timer");
-		int showTimerHud = (showTimerCv != null) ? showTimerCv.GetInt() : 1;
-		// Level timer: right side, just above the status bar; fixed-width digits so it doesn't shift as numbers change. MapTime is in tics (35/sec).
-		if (showTimerHud != 0)
-		{
-			int timeY = 161;  // down 5 from 156
-			int tics = level.MapTime;
-			int secs = tics / 35;
-			int mins = secs / 60;
-			secs = secs % 60;
-			int digitW = f.StringWidth("0");
-			int colonW = f.StringWidth(":");
-			int totalW = 2 * digitW + colonW + 2 * digitW;  // MM:SS fixed width
-			int baseX = (320 - 40) - totalW;
-			String m1 = (mins >= 10) ? String.Format("%d", mins / 10) : " ";
-			String m2 = String.Format("%d", mins % 10);
-			String s1 = String.Format("%d", secs / 10);
-			String s2 = String.Format("%d", secs % 10);
-			screen.DrawText(f, Font.CR_WHITE, baseX, timeY, m1, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
-			screen.DrawText(f, Font.CR_WHITE, baseX + digitW, timeY, m2, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
-			screen.DrawText(f, Font.CR_WHITE, baseX + 2 * digitW, timeY, ":", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
-			screen.DrawText(f, Font.CR_WHITE, baseX + 2 * digitW + colonW, timeY, s1, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
-			screen.DrawText(f, Font.CR_WHITE, baseX + 3 * digitW + colonW, timeY, s2, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
-		}
+		// Level timer: only shared_sbar (native) left clock; Z toggles odoom_hud_show_timer there — no duplicate MM:SS in this overlay.
 
 		// XP at far right of screen when beamed in (always visible during play)
 		CVar beamedVar = CVar.FindCVar("odoom_star_beamed_in");
@@ -1462,7 +1444,7 @@ class OASISInventoryOverlayHandler : EventHandler
 			if (questDesc.Length() > 200) questDesc = String.Format("%s..", questDesc.Left(198));
 			array<String> questWords;
 			questDesc.Split(questWords, " ", false);
-			DrawWrappedWords(screen, f, Font.CR_WHITE, popupX + 8, popupY + 24, descMaxW, rowH, maxLinesTop, questWords);
+			DrawWrappedWords(f, Font.CR_WHITE, popupX + 8, popupY + 24, descMaxW, rowH, maxLinesTop, questWords);
 			// Bottom left: heading by mode; description from selected item
 			String objDesc = "";
 			String objLabel = "Objective";
@@ -1501,7 +1483,7 @@ class OASISInventoryOverlayHandler : EventHandler
 			if (objDesc.Length() > 200) objDesc = String.Format("%s..", objDesc.Left(198));
 			array<String> objWords;
 			objDesc.Split(objWords, " ", false);
-			DrawWrappedWords(screen, f, Font.CR_WHITE, popupX + 8, objDescY, descMaxW, rowH, maxLinesBottom, objWords);
+			DrawWrappedWords(f, Font.CR_WHITE, popupX + 8, objDescY, descMaxW, rowH, maxLinesBottom, objWords);
 			// Right pane: one view per mode. Mode 0 = Objectives + Requirements; Mode 1 = Prereqs only; Mode 2 = Subquests only.
 			if (questDetailMode == 0)
 			{
