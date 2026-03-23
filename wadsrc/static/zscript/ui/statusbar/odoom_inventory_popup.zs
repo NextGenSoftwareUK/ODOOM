@@ -1321,7 +1321,7 @@ class OASISInventoryOverlayHandler : EventHandler
 			}
 		}
 
-		// Quest Tracker: left side, below "Beamed In:". O=cycle (1,2,3,All,Hide,...). Progress text e.g. "Killed 3/10 monsters". Hide when quest popup open or cycle on Hide.
+		// Quest Tracker: left side, below "Beamed In:". O=cycle (1,2,3,All,Hide,...). Lines = Need/Progress dicts only, e.g. "Killed 3/10 monsters". Hide when quest popup open or cycle on Hide.
 		CVar trackerShowCv = CVar.FindCVar("odoom_quest_tracker_show");
 		int trackerShow = (trackerShowCv != null) ? trackerShowCv.GetInt() : 1;
 		if (!questPopupOpen && trackerShow != 0)
@@ -1340,7 +1340,10 @@ class OASISInventoryOverlayHandler : EventHandler
 				// Match OQuake: when loading show just "Loading..."; when loaded show "Quest: <title>"
 				String titleLabel = (qTitle == "Loading...") ? "Loading..." : String.Format("Quest: %s", qTitle);
 				double titleScale = 0.6;
-				screen.DrawText(f, Font.CR_GOLD, trackX, trackY, titleLabel, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43, DTA_ScaleX, titleScale, DTA_ScaleY, titleScale);
+				int titleCr = Font.CR_GOLD;
+				if (qTitle.IndexOf("[Completed]") >= 0)
+					titleCr = Font.CR_GRAY;
+				screen.DrawText(f, titleCr, trackX, trackY, titleLabel, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43, DTA_ScaleX, titleScale, DTA_ScaleY, titleScale);
 				String objStr = (trackerObjLinesCv != null) ? trackerObjLinesCv.GetString() : "";
 				array<String> objLines;
 				if (objStr.Length() > 0) objStr.Split(objLines, "\n", false);
@@ -1358,19 +1361,38 @@ class OASISInventoryOverlayHandler : EventHandler
 				{
 					if (dispIdx >= nObj)
 					{
-						// All: show each objective line, highlight active in green
+						// All: show each objective line; completed in grey; active incomplete in green (API appends " [Completed]" on complete)
 						for (int i = 0; i < nObj; i++)
 						{
 							String line = objLines[i];
-							int cr = (i == activeIdx) ? Font.CR_GREEN : Font.CR_WHITE;
-							screen.DrawText(f, cr, trackX, trackY + 10 + i * 10, line, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43, DTA_ScaleX, trackScale, DTA_ScaleY, trackScale);
+							bool done = (line.IndexOf("[Completed]") >= 0) || (line.IndexOf("(Completed)") >= 0)
+								|| (line.IndexOf("— Completed") >= 0);
+							int cr;
+							if (done)
+								cr = Font.CR_GRAY;
+							else if (i == activeIdx)
+								cr = Font.CR_GREEN;
+							else
+								cr = Font.CR_WHITE;
+							String drawLine = line;
+							int cpl = drawLine.IndexOf(" [Completed]");
+							if (cpl >= 0) drawLine = drawLine.Left(cpl);
+							if (drawLine.Length() > 0)
+								screen.DrawText(f, cr, trackX, trackY + 10 + i * 10, drawLine, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43, DTA_ScaleX, trackScale, DTA_ScaleY, trackScale);
 						}
 					}
 					else
 					{
 						// Single objective (progress text)
 						String line = objLines[dispIdx];
-						screen.DrawText(f, Font.CR_WHITE, trackX, trackY + 10, line, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43, DTA_ScaleX, trackScale, DTA_ScaleY, trackScale);
+						bool done = (line.IndexOf("[Completed]") >= 0) || (line.IndexOf("(Completed)") >= 0)
+							|| (line.IndexOf("— Completed") >= 0);
+						int cr = done ? Font.CR_GRAY : Font.CR_WHITE;
+						String drawLine = line;
+						int cpl = drawLine.IndexOf(" [Completed]");
+						if (cpl >= 0) drawLine = drawLine.Left(cpl);
+						if (drawLine.Length() > 0)
+							screen.DrawText(f, cr, trackX, trackY + 10, drawLine, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43, DTA_ScaleX, trackScale, DTA_ScaleY, trackScale);
 					}
 				}
 			}
@@ -1430,7 +1452,7 @@ class OASISInventoryOverlayHandler : EventHandler
 			for (int i = 0; i < objLines.Size(); i++) if (objLines[i].Length() >= 2 && (objLines[i].IndexOf("Q\t") == 0 || objLines[i].IndexOf("O\t") == 0)) objQ.Push(i);
 			for (int i = 0; i < subLines.Size(); i++) if (subLines[i].Length() >= 2 && subLines[i].IndexOf("Q\t") == 0) subQ.Push(i);
 			// Left pane: top half = quest desc, bottom half = selected objective/prereq/subquest desc (50/50)
-			int detailFooterReserve = 72;  // room for 3 short hint lines at bottom
+			int detailFooterReserve = 70;  // room for 2 hint lines at bottom (see footer band below)
 			int leftContentH = popupH - detailFooterReserve - 24;
 			int leftTopH = leftContentH / 2;
 			int descMaxW = leftW - 8;
@@ -1589,10 +1611,15 @@ class OASISInventoryOverlayHandler : EventHandler
 				}
 				if (subQ.Size() == 0) screen.DrawText(f, Font.CR_GRAY, rightX, sect0Y + 10, "(none)", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 			}
-			int hintBase = popupY + popupH - 56;
-			screen.DrawText(f, Font.CR_DARKGRAY, popupX + 8, hintBase, "P O S = column tab", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
-			screen.DrawText(f, Font.CR_DARKGRAY, popupX + 8, hintBase + 12, "Arrows move  Enter open  K", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
-			screen.DrawText(f, Font.CR_DARKGRAY, popupX + 8, hintBase + 24, "Backspace = back", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
+			// Objectives / prereqs / subquests detail — two hint lines vertically centred in bottom footer band
+			int footerBandTop = popupY + popupH - 76;  // hints 10px higher than previous placement
+			int footerBandH = 56;
+			int fhHint = f.GetHeight();
+			int hintGap = 4;
+			int hintBlockH = fhHint + hintGap + fhHint;
+			int hintBase = footerBandTop + (footerBandH - hintBlockH) / 2;
+			screen.DrawText(f, Font.CR_DARKGRAY, popupX + 8, hintBase, "P O S: switch panel   Arrows  Enter  K", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
+			screen.DrawText(f, Font.CR_DARKGRAY, popupX + 8, hintBase + fhHint + hintGap, "Backspace: close   B X Z: HUD (no popups)", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 			return;
 		}
 		if (questPopupOpen)
@@ -1685,8 +1712,16 @@ class OASISInventoryOverlayHandler : EventHandler
 					if (qName.Length() > 32) qName = String.Format("%s..", qName.Left(30));
 					bool selected = (drawOffset + i == questSelectedIndex);
 					bool isTracker = (trackerQuestId.Length() > 0 && parts[1].Compare(trackerQuestId) == 0);
-					int cr = selected ? Font.CR_GOLD : (isTracker ? Font.CR_GREEN : Font.CR_WHITE);
-					if (status.Compare("Completed") == 0) cr = selected ? Font.CR_GREEN : Font.CR_GRAY;
+					// Completed: never green (avoids confusion with tracked in-progress quest). Selected completed = gold; else grey.
+					int cr;
+					if (status.Compare("Completed") == 0)
+						cr = selected ? Font.CR_GOLD : Font.CR_GRAY;
+					else if (selected)
+						cr = Font.CR_GOLD;
+					else if (isTracker)
+						cr = Font.CR_GREEN;
+					else
+						cr = Font.CR_WHITE;
 					screen.DrawText(f, cr, col1X, y, qName, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 					screen.DrawText(f, cr, col2X, y, String.Format("%s%%", pctStr), DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 					screen.DrawText(f, cr, col3X, y, statusDisplay, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
