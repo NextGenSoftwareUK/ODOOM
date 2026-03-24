@@ -1071,8 +1071,8 @@ static const size_t ODOOM_INVENTORY_CVAR_MAX_BYTES = 1024;
 static const size_t ODOOM_QUEST_LIST_MAX_BYTES = 16384;
 /** Max bytes to assign to odoom_quest_list CVar. Engine string CVars have a fixed buffer; exceeding it causes "Attempted to write past end of stream". */
 static const size_t ODOOM_QUEST_CVAR_MAX_BYTES = 4096;
-/** Max UTF-8 bytes for odoom_quest_tracker_objectives (newline-separated). Too small truncates lines and drops "[Completed]" / Killed X/Y text so the HUD never greys completed rows. */
-static const size_t ODOOM_QUEST_TRACKER_OBJECTIVES_CVAR_MAX = 2048;
+/** Max UTF-8 bytes for odoom_quest_tracker_objectives (newline-separated). Too small truncates lines and drops trailing " [Completed]" so completed rows never grey. */
+static const size_t ODOOM_QUEST_TRACKER_OBJECTIVES_CVAR_MAX = 4096;
 
 /** Truncate UTF-8 so len <= maxBytes without splitting a multibyte character (ZScript string CVars). */
 static void ODOOM_TruncateUtf8ForZScriptCVar(std::string& s, size_t maxBytes) {
@@ -1281,6 +1281,16 @@ static void ODOOM_RefreshOverlayFromClient(void) {
 static void StarLogInfo(const char* fmt, ...);
 static void StarLogQuestListPayloadChunks(const char* buf, int len);
 
+/** GUID / id compare (API may return mixed case; CVars may differ). */
+static bool ODOOM_QuestIdEqInsensitive(const std::string& a, const std::string& b) {
+	if (a.size() != b.size()) return false;
+	for (size_t i = 0; i < a.size(); ++i) {
+		unsigned char ca = (unsigned char)a[i], cb = (unsigned char)b[i];
+		if (ca != cb && tolower(ca) != tolower(cb)) return false;
+	}
+	return true;
+}
+
 /** Update tracker progress lines + active index from STAR cache (no full quest list parse). Call every frame while tracker is visible so Need and Progress dictionary merges show immediately after kills/pickups. */
 static void ODOOM_PushTrackerProgressCvars(const char* wantIdCStr) {
 	if (!wantIdCStr || !wantIdCStr[0] || std::strcmp(wantIdCStr, "...") == 0) return;
@@ -1416,20 +1426,9 @@ static void ODOOM_RefreshQuestCVars(void) {
 				if (t1 && t1 - (t0 + 1) > 0) currentTitle.assign(t0 + 1, (size_t)(t1 - (t0 + 1)));
 			}
 			if (currentTitle.size() > 120) currentTitle.resize(120);
-			std::string qStatusField;
-			if (t1 && t1 + 1 < lineEndQ) {
-				const char* t2 = (const char*)memchr(t1 + 1, '\t', (size_t)(lineEndQ - (t1 + 1)));
-				if (t2 && t2 + 1 < lineEndQ) {
-					const char* t3 = (const char*)memchr(t2 + 1, '\t', (size_t)(lineEndQ - (t2 + 1)));
-					if (t3 && t3 > t2 + 1)
-						qStatusField.assign(t2 + 1, (size_t)(t3 - (t2 + 1)));
-				}
-			}
-			inTargetBlock = !wantId.empty() && (currentId == wantId);
+			inTargetBlock = !wantId.empty() && wantId != "..." && ODOOM_QuestIdEqInsensitive(currentId, wantId);
 			if (inTargetBlock) {
 				trackerTitle = currentTitle;
-				if (qStatusField == "Completed" || qStatusField == "2")
-					trackerTitle += " [Completed]";
 				trackerObjective.clear();
 			}
 			p = lineEnd ? lineEnd + 1 : p + lineLen;
@@ -1454,6 +1453,40 @@ static void ODOOM_RefreshQuestCVars(void) {
 		p = lineEnd ? lineEnd + 1 : p + lineLen;
 	}
 
+	/* Profile ActiveQuestId may be stale (deleted quest), a sub-quest id not in top-level lines, or differ only by case — then trackerTitle stays empty and HUD stuck on "Loading...". Fall back to first top-level quest for display + progress. */
+	if (!wantId.empty() && wantId != "..." && trackerTitle.empty() && questCount > 0) {
+		const char* fp = questBuf;
+		const char* fend = questBuf + n;
+		std::string firstId, firstTitle;
+		while (fp < fend && *fp) {
+			const char* lineEnd = (const char*)memchr(fp, '\n', (size_t)(fend - fp));
+			size_t lineLen = lineEnd ? (size_t)(lineEnd - fp) : (size_t)(fend - fp);
+			if (lineLen >= 2 && fp[0] == 'Q' && fp[1] == '\t') {
+				const char* f = fp + 2;
+				const char* lineEndQ = fp + lineLen;
+				const char* t0 = (const char*)memchr(f, '\t', (size_t)(lineEndQ - f));
+				if (t0 && t0 - f > 0) firstId.assign(f, (size_t)(t0 - f));
+				if (t0 && t0 + 1 < lineEndQ) {
+					const char* t1 = (const char*)memchr(t0 + 1, '\t', (size_t)(lineEndQ - (t0 + 1)));
+					if (t1 && t1 - (t0 + 1) > 0) firstTitle.assign(t0 + 1, (size_t)(t1 - (t0 + 1)));
+				}
+				if (firstTitle.size() > 120) firstTitle.resize(120);
+				break;
+			}
+			fp = lineEnd ? lineEnd + 1 : fp + lineLen;
+		}
+		if (!firstTitle.empty()) {
+			trackerTitle = std::move(firstTitle);
+			wantId = firstId;
+			if (trackerIdVar && trackerIdVar->GetRealType() == CVAR_String) {
+				static std::string s_tracker_id_fallback;
+				s_tracker_id_fallback = firstId;
+				UCVarValue q; q.String = (char*)s_tracker_id_fallback.c_str();
+				trackerIdVar->SetGenericRep(q, CVAR_String);
+			}
+		}
+	}
+
 	/* When list was truncated for CVar, report only the number of quests in the truncated list so ZScript scroll/count match. */
 	if (assignLen < (size_t)n) {
 		int listCount = 0;
@@ -1476,6 +1509,23 @@ static void ODOOM_RefreshQuestCVars(void) {
 			{ UCVarValue t; t.String = (char*)trackerTitle.c_str(); trackerTitleVar->SetGenericRep(t, CVAR_String); }
 		else if (wantId.empty())
 			{ UCVarValue t; t.String = (char*)""; trackerTitleVar->SetGenericRep(t, CVAR_String); }
+		else if (questCount == 0)
+		{
+			/* No quests in cache/list for this avatar: do not leave stale "Loading..." title visible. */
+			UCVarValue t; t.String = (char*)"No Active Quest Found";
+			trackerTitleVar->SetGenericRep(t, CVAR_String);
+			if (trackerIdVar && trackerIdVar->GetRealType() == CVAR_String)
+			{
+				UCVarValue q; q.String = (char*)"";
+				trackerIdVar->SetGenericRep(q, CVAR_String);
+			}
+			FBaseCVar* trackerActiveIdVar = FindCVar("odoom_quest_tracker_active_objective_id", nullptr);
+			if (trackerActiveIdVar && trackerActiveIdVar->GetRealType() == CVAR_String)
+			{
+				UCVarValue o; o.String = (char*)"";
+				trackerActiveIdVar->SetGenericRep(o, CVAR_String);
+			}
+		}
 	}
 	if (trackerObjVar && trackerObjVar->GetRealType() == CVAR_String) {
 		UCVarValue o; o.String = (char*)(trackerObjective.empty() ? "" : trackerObjective.c_str());
@@ -2237,21 +2287,7 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		/* Merge Enter into use so ZScript sees keyUsePressed for both E and Enter (confirm/close) */
 		use = (use || enter) ? 1 : 0;
 		ODOOM_InventorySetKeyState(up, down, left, right, use, a, c, z, x, i, o, p, keyS, keyT, q, enter, pgup, pgdown, home, endkey, keyB, keyN, keyM, keyK, keyV, backspace);
-		/* B/X/Z: native rising edge -> ODOOM_FlipHudIntCVarImpl (keys stay unbound so engine never eats them; no ZScript GLOBALCONFIG). Blocked when any STAR popup open. */
-		{
-			static int s_hud_b_was_down = 0, s_hud_x_was_down = 0, s_hud_z_was_down = 0;
-			if (g_star_initialized && !ODOOM_AnyStarPopupOpenForHudToggle()) {
-				if (keyB && !s_hud_b_was_down)
-					ODOOM_FlipHudIntCVarImpl("odoom_hud_show_beamed");
-				if (x && !s_hud_x_was_down)
-					ODOOM_FlipHudIntCVarImpl("odoom_hud_show_xp");
-				if (z && !s_hud_z_was_down)
-					ODOOM_FlipHudIntCVarImpl("odoom_hud_show_timer");
-			}
-			s_hud_b_was_down = keyB ? 1 : 0;
-			s_hud_x_was_down = x ? 1 : 0;
-			s_hud_z_was_down = z ? 1 : 0;
-		}
+		/* B/X/Z HUD toggles: ZScript flips odoom_hud_show_* on odoom_key_* rising edge (inventory/quest/send closed). Avoid C++ flip here — double-toggle if both ran. */
 		/* K = Start/Set quest: drive from C++ using odoom_quest_selected_id (ZScript sets every frame) so we don't rely on one-frame CVar handoff. */
 		{
 			static int s_key_k_was_down = 0;
@@ -2390,6 +2426,18 @@ void ODOOM_InventoryInputCaptureFrame(void)
 					 * multiple frames (ordering, ZScript), that spammed quest reload during play. Cold cache is filled via
 					 * EnsureQuestsCacheInBackground when get_top_level_quests_string misses (ODOOM_RefreshQuestCVars). */
 					ODOOM_RefreshQuestCVars();
+				} else {
+					/* No active quest: don't leave tracker stuck on "Loading...". */
+					FBaseCVar* titleVar = FindCVar("odoom_quest_tracker_title", nullptr);
+					if (titleVar && titleVar->GetRealType() == CVAR_String) {
+						UCVarValue t; t.String = (char*)"No Active Quest Found";
+						titleVar->SetGenericRep(t, CVAR_String);
+					}
+					FBaseCVar* objLinesVar = FindCVar("odoom_quest_tracker_objectives", nullptr);
+					if (objLinesVar && objLinesVar->GetRealType() == CVAR_String) {
+						UCVarValue o; o.String = (char*)"";
+						objLinesVar->SetGenericRep(o, CVAR_String);
+					}
 				}
 			} else {
 				/* Tracker id already set: full quest list refresh periodically for title sync; progress lines every frame from cache (real-time kill counts after client merge). */
@@ -2712,7 +2760,7 @@ void ODOOM_InventorySetKeyState(int up, int down, int left, int right, int use, 
 	SET_KEY_CVAR("odoom_key_k", keyK);
 	SET_KEY_CVAR("odoom_key_backspace", backspace);
 #undef SET_KEY_CVAR
-	/* B/X/Z: unbound for engine; raw odoom_key_* for ZScript; C++ flips odoom_hud_show_* on rising edge when no STAR popup. */
+	/* B/X/Z: unbound for engine; raw odoom_key_* for ZScript; ZScript toggles odoom_hud_show_* when no STAR popup. */
 }
 
 int UZDoom_STAR_GetShowAnorakFace(void)

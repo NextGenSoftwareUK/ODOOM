@@ -307,7 +307,25 @@ class OASISInventoryOverlayHandler : EventHandler
 				else showCv.SetInt(1);
 			}
 		}
-		// B/X/Z HUD: toggles run in C++ (rising edge on raw key) so bindings stay empty; do not duplicate flip here from ZScript.
+		// B/X/Z HUD: flip CVars from same raw-key state C++ writes (odoom_key_*). Only when no inventory, quest, or send popup (matches native guard).
+		if (!popupOpen && !questPopupOpen && sendPopupMode == 0)
+		{
+			if (keyBPressed)
+			{
+				CVar hb = CVar.FindCVar("odoom_hud_show_beamed");
+				if (hb != null) hb.SetInt(hb.GetInt() != 0 ? 0 : 1);
+			}
+			if (keyXPressed)
+			{
+				CVar hx = CVar.FindCVar("odoom_hud_show_xp");
+				if (hx != null) hx.SetInt(hx.GetInt() != 0 ? 0 : 1);
+			}
+			if (keyZPressed)
+			{
+				CVar hz = CVar.FindCVar("odoom_hud_show_timer");
+				if (hz != null) hz.SetInt(hz.GetInt() != 0 ? 0 : 1);
+			}
+		}
 		if (questPopupOpen)
 		{
 			if (keyBackspacePressed && !questDetailPopupOpen)
@@ -1094,6 +1112,47 @@ class OASISInventoryOverlayHandler : EventHandler
 	}
 
 	// STAR item matches tab (same data as "star inventory" command, from odoom_star_inventory_list).
+	// Tracker lines are ProgressSummary strings. Completed is inferred from 100%.
+	private ui bool OdoomTrackerLineIsCompleted(String line)
+	{
+		if (line.Length() == 0) return false;
+		if (line.IndexOf("(100%)") >= 0) return true;
+		return false;
+	}
+
+	/** Detail popup objective lines from star_api_get_quest_objectives_string: Q\\tid\\tTitle\\tDescription\\tstatus\\tpct\\n (see StarApiClient.SerializeObjectivesAsQuestLines). If a 5-field legacy row omits the empty Description column, parts[3] is status — do not show that as the body text. */
+	private ui bool OdoomQuestLinePartLooksLikeObjectiveStatus(String s)
+	{
+		if (s.Length() == 0) return false;
+		return s.Compare("InProgress") == 0 || s.Compare("In Progress") == 0
+			|| s.Compare("Completed") == 0
+			|| s.Compare("NotStarted") == 0 || s.Compare("Not Started") == 0;
+	}
+
+	private ui String OdoomQuestObjectiveBodyFromDetailLine(String line)
+	{
+		array<String> parts;
+		line.Split(parts, "\t", false);
+		if (parts.Size() < 2) return "";
+		if (parts[0].Compare("Q") != 0)
+		{
+			if (parts[0].Compare("O") == 0 && parts.Size() >= 3) return parts[2];
+			return "";
+		}
+		if (parts.Size() >= 6)
+		{
+			if (parts[3].Length() > 0) return parts[3];
+			return parts[2];
+		}
+		if (parts.Size() == 5 && OdoomQuestLinePartLooksLikeObjectiveStatus(parts[3]))
+			return parts[2];
+		if (parts.Size() >= 4 && parts[3].Length() > 0)
+			return parts[3];
+		if (parts.Size() >= 3)
+			return parts[2];
+		return "";
+	}
+
 	private bool IsStarItemInTab(String itemType, String itemName, int tabIndex)
 	{
 		String t = itemType;
@@ -1341,11 +1400,12 @@ class OASISInventoryOverlayHandler : EventHandler
 				int trackX = -53;
 				int trackY = 7;
 				double trackScale = 0.5;
-				// Match OQuake: when loading show just "Loading..."; when loaded show "Quest: <title>"
-				String titleLabel = (qTitle == "Loading...") ? "Loading..." : String.Format("Quest: %s", qTitle);
+				// Match OQuake: when loading show just "Loading..."; standalone status lines without "Quest:" prefix
+				String titleLabel = (qTitle == "Loading..." || qTitle == "No Active Quest Found" || qTitle == "No Quests Found")
+					? qTitle : String.Format("Quest: %s", qTitle);
 				double titleScale = 0.6;
 				int titleCr = Font.CR_GOLD;
-				if (qTitle.IndexOf("[Completed]") >= 0)
+				if (OdoomTrackerLineIsCompleted(qTitle))
 					titleCr = Font.CR_GRAY;
 				screen.DrawText(f, titleCr, trackX, trackY, titleLabel, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43, DTA_ScaleX, titleScale, DTA_ScaleY, titleScale);
 				String objStr = (trackerObjLinesCv != null) ? trackerObjLinesCv.GetString() : "";
@@ -1365,12 +1425,11 @@ class OASISInventoryOverlayHandler : EventHandler
 				{
 					if (dispIdx >= nObj)
 					{
-						// All: show each objective line; completed in grey; active incomplete in green (API appends " [Completed]" on complete)
+						// All: show each objective line; completed in grey; active incomplete in green.
 						for (int i = 0; i < nObj; i++)
 						{
 							String line = objLines[i];
-							bool done = (line.IndexOf("[Completed]") >= 0) || (line.IndexOf("(Completed)") >= 0)
-								|| (line.IndexOf("— Completed") >= 0);
+							bool done = OdoomTrackerLineIsCompleted(line);
 							int cr;
 							if (done)
 								cr = Font.CR_GRAY;
@@ -1386,8 +1445,7 @@ class OASISInventoryOverlayHandler : EventHandler
 					{
 						// Single objective (progress text)
 						String line = objLines[dispIdx];
-						bool done = (line.IndexOf("[Completed]") >= 0) || (line.IndexOf("(Completed)") >= 0)
-							|| (line.IndexOf("— Completed") >= 0);
+						bool done = OdoomTrackerLineIsCompleted(line);
 						int cr = done ? Font.CR_GRAY : Font.CR_WHITE;
 						if (line.Length() > 0)
 							screen.DrawText(f, cr, trackX, trackY + 10, line, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43, DTA_ScaleX, trackScale, DTA_ScaleY, trackScale);
@@ -1474,15 +1532,8 @@ class OASISInventoryOverlayHandler : EventHandler
 			if (questDetailMode == 0 && objQ.Size() > 0 && questDetailObjSelected >= 0 && questDetailObjSelected < objQ.Size())
 			{
 				int idx = objQ[questDetailObjSelected];
-				if (idx < objLines.Size()) {
-					array<String> parts;
-					objLines[idx].Split(parts, "\t", false);
-					// Q-lines: parts[2]=name (objectives list), parts[3]=desc (left pane). O-lines legacy: parts[2]=text, parts[3]=done flag.
-					if (parts.Size() >= 2 && parts[0].Compare("Q") == 0) {
-						if (parts.Size() >= 4 && parts[3].Length() > 0) objDesc = parts[3];
-						else if (parts.Size() >= 3) objDesc = parts[2];
-					} else if (parts.Size() >= 3) objDesc = parts[2];
-				}
+				if (idx < objLines.Size())
+					objDesc = OdoomQuestObjectiveBodyFromDetailLine(objLines[idx]);
 			}
 			else if (questDetailMode == 1 && prereqQ.Size() > 0 && questDetailPrereqSelected >= 0 && questDetailPrereqSelected < prereqQ.Size())
 			{
@@ -1619,9 +1670,10 @@ class OASISInventoryOverlayHandler : EventHandler
 				}
 				if (subQ.Size() == 0) screen.DrawText(f, Font.CR_GRAY, rightX, sect0Y + 10, "(none)", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
 			}
-			// Detail popup help: same vertical position as main list (fixed offset from bottom); each line centred horizontally in virtual 320
-			int listHint1Y = popupY + popupH - 58;
-			int listHint2Y = popupY + popupH - 43;
+			// Detail popup help: same screen Y as main QUEST list (main uses popupY=0; do not add detail popupY or hints sit too low)
+			int footerHintBaseY = 0;
+			int listHint1Y = footerHintBaseY + popupH - 58;
+			int listHint2Y = footerHintBaseY + popupH - 43;
 			String dh1 = "P O S: switch panel   Arrows  Enter  K";
 			String dh2 = "Backspace: close   B X Z: HUD (Q closed)";
 			int dh1x = 160 - f.StringWidth(dh1) / 2; if (dh1x < 2) dh1x = 2;
@@ -1737,10 +1789,17 @@ class OASISInventoryOverlayHandler : EventHandler
 				}
 			}
 			else
-				screen.DrawText(f, Font.CR_GRAY, popupX + 8, popupY + 48, "No Quests Found", DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
-			// Main quest list help: original vertical slot; lines centred horizontally in virtual 320
-			int mainHint1Y = popupY + popupH - 58;
-			int mainHint2Y = popupY + popupH - 43;
+			{
+				String noQuestMsg = "No Quests Found";
+				int noQuestW = f.StringWidth(noQuestMsg);
+				int noQuestX = popupX + (popupW - noQuestW) / 2 + 55;
+				if (noQuestX < popupX + 2) noQuestX = popupX + 2;
+				screen.DrawText(f, Font.CR_GRAY, noQuestX, popupY + 48, noQuestMsg, DTA_VirtualWidth, 320, DTA_VirtualHeight, 200, DTA_FullscreenScale, FSMode_ScaleToFit43);
+			}
+			// Main quest list help: fixed footer rows (popupY=0 for this popup); centred horizontally in virtual 320
+			int mainFooterBaseY = 0;
+			int mainHint1Y = mainFooterBaseY + popupH - 58;
+			int mainHint2Y = mainFooterBaseY + popupH - 43;
 			String mh1 = "V/N/M=filter  PgUp/PgDn  Home/End  Arrows  Enter  K";
 			String mh2 = "Backspace=back/close  Q=close list";
 			int mh1x = 160 - f.StringWidth(mh1) / 2; if (mh1x < 2) mh1x = 2;
