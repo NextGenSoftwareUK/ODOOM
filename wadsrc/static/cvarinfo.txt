@@ -111,3 +111,8 @@ server string odoom_quest_tracker_active_objective_id = "";
 server int odoom_quest_persist_active_now = 0;
 
 server int odoom_key_d = 0;
+
+server string odoom_quest_scroll_to_id = "";
+server int odoom_quest_pending_select_filtered_index = -1;
+
+server int odoom_quest_start_then_track_do_it = 0;
