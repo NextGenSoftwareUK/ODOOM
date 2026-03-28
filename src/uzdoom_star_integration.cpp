@@ -438,6 +438,8 @@ CVAR(Int, odoom_hud_show_xp, 1, CVAR_ARCHIVE)
 /** 1 = show level timer (bottom area). */
 CVAR(Int, odoom_hud_show_timer, 1, CVAR_ARCHIVE)
 CVAR(String, odoom_oasis_api_url, "https://api.oasisplatform.world", CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(String, odoom_star_transport, "remote", CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(String, odoom_oasis_dna_path, "", CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 /* Stack (1) = each pickup adds quantity; Unlock (0) = one per type. Ammo always stacks. Shared with OQuake; sigils are OQuake-only. */
 CVAR(Int, odoom_star_stack_armor, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Int, odoom_star_stack_weapons, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -613,6 +615,14 @@ static bool ODOOM_LoadJsonConfig(const char* json_path) {
 		odoom_oasis_api_url = value;
 		loaded = true;
 	}
+	if (ODOOM_ExtractJsonValue(json, "star_transport", value, (int)sizeof(value))) {
+		odoom_star_transport = value;
+		loaded = true;
+	}
+	if (ODOOM_ExtractJsonValue(json, "oasis_dna_path", value, (int)sizeof(value))) {
+		odoom_oasis_dna_path = value;
+		loaded = true;
+	}
 	if (ODOOM_ExtractJsonValue(json, "beam_face", value, (int)sizeof(value))) {
 		oasis_star_beam_face = (atoi(value) != 0);
 		loaded = true;
@@ -768,8 +778,19 @@ static bool ODOOM_SaveJsonConfig(const char* json_path) {
 	const char* star_url = (const char*)odoom_star_api_url;
 	const char* oasis_url = (const char*)odoom_oasis_api_url;
 	fprintf(f, "{\n");
+	fprintf(f, "  \"star_transport\": \"%s\",\n", (const char*)odoom_star_transport && ((const char*)odoom_star_transport)[0] ? (const char*)odoom_star_transport : "remote");
 	fprintf(f, "  \"star_api_url\": \"%s\",\n", star_url ? star_url : "");
 	fprintf(f, "  \"oasis_api_url\": \"%s\",\n", oasis_url ? oasis_url : "");
+	{
+		const char* dna = (const char*)odoom_oasis_dna_path;
+		if (!dna) dna = "";
+		fprintf(f, "  \"oasis_dna_path\": \"");
+		for (; *dna; dna++) {
+			if (*dna == '"' || *dna == '\\') fputc('\\', f);
+			fputc((unsigned char)*dna, f);
+		}
+		fprintf(f, "\",\n");
+	}
 	fprintf(f, "  \"beam_face\": %d,\n", oasis_star_beam_face ? 1 : 0);
 	fprintf(f, "  \"star_debug\": %d,\n", g_star_debug_logging ? 1 : 0);
 	fprintf(f, "  \"quest_progress_refresh\": \"%s\",\n", g_odoom_quest_progress_cache_refresh ? "server" : "client");
@@ -958,27 +979,6 @@ static std::string ODOOM_DefaultOasisstarJsonPathForCreate(void) {
 	return std::string("oasisstar.json");
 }
 
-/** Holochain / STAR DNA bundle path file (optional). Create empty default if missing — same idea as OQuake creating oasisstar.json. */
-static void ODOOM_EnsureDefaultOasisstarDna(const std::string& oasisstar_json_path) {
-	if (oasisstar_json_path.empty()) return;
-	std::string dnaPath = oasisstar_json_path;
-	const size_t last = dnaPath.find_last_of("/\\");
-	if (last != std::string::npos)
-		dnaPath = dnaPath.substr(0, last + 1) + "oasisstar.dna";
-	else
-		dnaPath = "oasisstar.dna";
-	FILE* t = fopen(dnaPath.c_str(), "r");
-	if (t) {
-		fclose(t);
-		return;
-	}
-	FILE* w = fopen(dnaPath.c_str(), "w");
-	if (!w) return;
-	fprintf(w, "{\n  \"starnet_dna_path\": \"\"\n}\n");
-	fclose(w);
-	StarLogInfo("Created default oasisstar.dna: %s", dnaPath.c_str());
-}
-
 static bool ODOOM_TryCreateDefaultOasisstarJson(std::string& outPath) {
 	const std::string p1 = ODOOM_DefaultOasisstarJsonPathForCreate();
 	if (ODOOM_SaveJsonConfig(p1.c_str())) {
@@ -1098,6 +1098,49 @@ static void ODOOM_TruncateUtf8ForZScriptCVar(std::string& s, size_t maxBytes) {
 	}
 	s.resize(n);
 }
+
+/* Canonical STAR inventory ids (aligned with OQuake; see Docs/CROSS_GAME_POWERUP_WEAPON_MAP.md). */
+namespace {
+constexpr const char kOasisMegaHealth[] = "OASIS.MegaHealth";
+constexpr const char kOasisMegaHealthArmor[] = "OASIS.MegaHealthArmor";
+constexpr const char kOasisQuadDamage[] = "OASIS.QuadDamage";
+constexpr const char kOasisInvuln[] = "OASIS.Invulnerability";
+constexpr const char kOasisEnvSuit[] = "OASIS.EnvironmentSuit";
+constexpr const char kOasisRingShadows[] = "OASIS.RingShadows";
+
+static bool ODOOM_NameEqualsCanon(const char* n, const char* canon) {
+	if (!n || !canon) return false;
+	while (*n && *canon) {
+		if (std::tolower(static_cast<unsigned char>(*n)) != std::tolower(static_cast<unsigned char>(*canon)))
+			return false;
+		++n;
+		++canon;
+	}
+	return *n == *canon;
+}
+static bool ODOOM_NameEqualsCanon(const std::string& n, const char* canon) {
+	return ODOOM_NameEqualsCanon(n.c_str(), canon);
+}
+
+/** Powerups tab / debounce: canonical OASIS.* (cross-game) or Doom-facing display names from ToStarItemName. */
+static bool ODOOM_ItemNameIsCanonicalPhase1Powerup(const char* name) {
+	if (!name || !name[0]) return false;
+	if (ODOOM_NameEqualsCanon(name, kOasisMegaHealth)
+		|| ODOOM_NameEqualsCanon(name, kOasisMegaHealthArmor)
+		|| ODOOM_NameEqualsCanon(name, kOasisQuadDamage)
+		|| ODOOM_NameEqualsCanon(name, kOasisInvuln)
+		|| ODOOM_NameEqualsCanon(name, kOasisEnvSuit)
+		|| ODOOM_NameEqualsCanon(name, kOasisRingShadows))
+		return true;
+	return ODOOM_NameEqualsCanon(name, "Soul Sphere")
+		|| ODOOM_NameEqualsCanon(name, "Mega Sphere")
+		|| ODOOM_NameEqualsCanon(name, "Invulnerability")
+		|| ODOOM_NameEqualsCanon(name, "Radiation Suit")
+		|| ODOOM_NameEqualsCanon(name, "Blur Sphere")
+		|| ODOOM_NameEqualsCanon(name, "Quad Damage");
+}
+} // namespace
+
 /** Max items in one window so we stay under the byte limit; ZScript scrolls by requesting different scroll_offset. */
 static const size_t ODOOM_INVENTORY_WINDOW_ITEMS = 24;
 
@@ -1113,7 +1156,8 @@ static bool ODOOM_ItemMatchesTab(const char* item_type, const char* name, int ta
 		return contains(s, "Key") || contains(s, "key");
 	};
 	if (tab == ODOOM_TAB_KEYS) return containsKey(item_type) || containsKey(name);
-	if (tab == ODOOM_TAB_POWERUPS) return contains(item_type, "Powerup");
+	if (tab == ODOOM_TAB_POWERUPS)
+		return contains(item_type, "Powerup") || ODOOM_ItemNameIsCanonicalPhase1Powerup(name);
 	if (tab == ODOOM_TAB_WEAPONS) return contains(item_type, "Weapon");
 	if (tab == ODOOM_TAB_AMMO) return contains(item_type, "Ammo");
 	if (tab == ODOOM_TAB_ARMOR) return contains(item_type, "Armor");
@@ -1122,7 +1166,8 @@ static bool ODOOM_ItemMatchesTab(const char* item_type, const char* name, int ta
 		return !containsKey(item_type) && !containsKey(name)
 			&& !contains(item_type, "Powerup") && !contains(item_type, "Weapon")
 			&& !contains(item_type, "Ammo") && !contains(item_type, "Armor")
-			&& !contains(item_type, "Monster");
+			&& !contains(item_type, "Monster")
+			&& !ODOOM_ItemNameIsCanonicalPhase1Powerup(name);
 	}
 	return true; /* unknown tab: show all */
 }
@@ -2113,6 +2158,21 @@ static bool ODOOM_WouldUseExceedMax(const std::string& name, const std::string& 
 	if (!player || !player->mo) return false;
 	const size_t np = (size_t)(-1);
 	std::string n = ODOOM_StripNftDisplayPrefix(name);
+	/* Megasphere / OASIS.MegaHealthArmor: +200 HP and +200 armor in one STAR row */
+	if (ODOOM_NameEqualsCanon(n, kOasisMegaHealthArmor) || n.find("Mega Sphere") != np) {
+		int configMaxH = 200, configMaxA = 200;
+		{ FBaseCVar* v = FindCVar("odoom_star_max_health", nullptr); if (v && v->GetRealType() == CVAR_Int) configMaxH = v->GetGenericRep(CVAR_Int).Int; if (configMaxH <= 0) configMaxH = 200; }
+		{ FBaseCVar* v = FindCVar("odoom_star_max_armor", nullptr); if (v && v->GetRealType() == CVAR_Int) configMaxA = v->GetGenericRep(CVAR_Int).Int; if (configMaxA <= 0) configMaxA = 200; }
+		const int dh = 200, da = 200;
+		int curH = player->mo->health;
+		AActor* arm = player->mo->FindInventory(FName("BasicArmor"), true);
+		int curA = arm ? arm->IntVar(FName("Amount")) : 0;
+		if (curH >= configMaxH) { *out_msg = "You cannot use this because you are already at max health."; return true; }
+		if (curH + dh > configMaxH) { *out_msg = "You cannot use this because you are already at max health."; return true; }
+		if (curA >= configMaxA) { *out_msg = "You cannot use this because you are already at max armor."; return true; }
+		if (curA + da > configMaxA) { *out_msg = "You cannot use this because you are already at max armor."; return true; }
+		return false;
+	}
 	const bool isHealth = (type.find("Health") != np || type.find("health") != np ||
 		n.find("Stimpack") != np || n.find("Medikit") != np || n.find("Health Bonus") != np ||
 		n.find("Soul") != np || n.find("Mega") != np || n.find("Health") != np);
@@ -2128,7 +2188,7 @@ static bool ODOOM_WouldUseExceedMax(const std::string& name, const std::string& 
 			if (n.find("Stimpack") != np) amount = 10;
 			else if (n.find("Medikit") != np) amount = 25;
 			else if (n.find("Health Bonus") != np) amount = 1;
-			else if (n.find("Soul Sphere") != np || n.find("Soul") != np) amount = 100;
+			else if (ODOOM_NameEqualsCanon(n, kOasisMegaHealth) || n.find("Soul Sphere") != np || n.find("Soul") != np) amount = 100;
 			else if (n.find("Mega") != np && (n.find("Sphere") != np || n.find("Health") != np)) amount = 200;
 			else if (n.find("Large Health") != np) amount = 50;
 			else if (n.find("Mega Health") != np) amount = 100;
@@ -2160,8 +2220,32 @@ static void ODOOM_ApplyHealthOrArmor(const std::string& name, const std::string&
 	if (!level) return;
 	player_t* player = level->GetConsolePlayer();
 	if (!player || !player->mo) return;
+	g_star_deferred_apply_health = false;
+	g_star_deferred_apply_armor = false;
+	g_star_deferred_health_value = -1;
+	g_star_deferred_armor_value = -1;
 	const size_t np = (size_t)(-1);
 	std::string n = ODOOM_StripNftDisplayPrefix(name);
+	if (ODOOM_NameEqualsCanon(n, kOasisMegaHealthArmor) || n.find("Mega Sphere") != np) {
+		int configMaxH = 200, configMaxA = 200;
+		{ FBaseCVar* v = FindCVar("odoom_star_max_health", nullptr); if (v && v->GetRealType() == CVAR_Int) configMaxH = v->GetGenericRep(CVAR_Int).Int; if (configMaxH <= 0) configMaxH = 200; }
+		{ FBaseCVar* v = FindCVar("odoom_star_max_armor", nullptr); if (v && v->GetRealType() == CVAR_Int) configMaxA = v->GetGenericRep(CVAR_Int).Int; if (configMaxA <= 0) configMaxA = 200; }
+		const int dh = 200, da = 200;
+		if (P_GiveBody(player->mo, dh, configMaxH)) {
+			g_star_deferred_apply_health = true;
+			g_star_deferred_health_value = player->mo->health;
+			Printf(PRINT_HIGH, "STAR: used %s, health now %d\n", n.c_str(), player->mo->health);
+		}
+		AActor* arm = player->mo->FindInventory(FName("BasicArmor"), true);
+		if (arm) {
+			int& a = arm->IntVar(FName("Amount"));
+			{ int newA = a + da; int cap = configMaxA; a = (newA < cap) ? newA : cap; }
+			g_star_deferred_apply_armor = true;
+			g_star_deferred_armor_value = a;
+			Printf(PRINT_HIGH, "STAR: used %s, armor now %d\n", n.c_str(), a);
+		}
+		return;
+	}
 	const bool isHealth = (type.find("Health") != np || type.find("health") != np ||
 		n.find("Stimpack") != np || n.find("Medikit") != np || n.find("Health Bonus") != np ||
 		n.find("Soul") != np || n.find("Mega") != np || n.find("Health") != np);
@@ -2170,10 +2254,6 @@ static void ODOOM_ApplyHealthOrArmor(const std::string& name, const std::string&
 	int configMaxH = 200, configMaxA = 200;
 	{ FBaseCVar* v = FindCVar("odoom_star_max_health", nullptr); if (v && v->GetRealType() == CVAR_Int) configMaxH = v->GetGenericRep(CVAR_Int).Int; if (configMaxH <= 0) configMaxH = 200; }
 	{ FBaseCVar* v = FindCVar("odoom_star_max_armor", nullptr); if (v && v->GetRealType() == CVAR_Int) configMaxA = v->GetGenericRep(CVAR_Int).Int; if (configMaxA <= 0) configMaxA = 200; }
-	g_star_deferred_apply_health = false;
-	g_star_deferred_apply_armor = false;
-	g_star_deferred_health_value = -1;
-	g_star_deferred_armor_value = -1;
 	if (isHealth) {
 		int amount = (description && description[0]) ? ODOOM_ParseAmountFromDescription(std::string(description)) : 0;
 		if (amount <= 0) amount = ODOOM_ParseAmountFromDescription(n);
@@ -2181,7 +2261,7 @@ static void ODOOM_ApplyHealthOrArmor(const std::string& name, const std::string&
 			if (n.find("Stimpack") != np) amount = 10;
 			else if (n.find("Medikit") != np) amount = 25;
 			else if (n.find("Health Bonus") != np) amount = 1;
-			else if (n.find("Soul Sphere") != np || n.find("Soul") != np) amount = 100;
+			else if (ODOOM_NameEqualsCanon(n, kOasisMegaHealth) || n.find("Soul Sphere") != np || n.find("Soul") != np) amount = 100;
 			else if (n.find("Mega") != np && (n.find("Sphere") != np || n.find("Health") != np)) amount = 200;
 			else if (n.find("Large Health") != np) amount = 50;
 			else if (n.find("Mega Health") != np) amount = 100;
@@ -2229,8 +2309,9 @@ static bool ODOOM_FindFirstHealthOrArmorInInventory(bool want_health, std::strin
 			name.find("Soul") != np || name.find("Mega") != np || name.find("Health") != np);
 		bool is_armor = (type.find("Armor") != np || type.find("armor") != np ||
 			name.find("Armor") != np || name.find("Blue") != np || name.find("Green") != np || name.find("Yellow") != np);
+		bool is_mega_combo = ODOOM_NameEqualsCanon(name, kOasisMegaHealthArmor) || name.find("Mega Sphere") != np;
 		if (want_health && is_health) { *out_name = name; *out_type = type; star_api_free_item_list(list); return true; }
-		if (!want_health && is_armor) { *out_name = name; *out_type = type; star_api_free_item_list(list); return true; }
+		if (!want_health && is_armor && !is_mega_combo) { *out_name = name; *out_type = type; star_api_free_item_list(list); return true; }
 	}
 	star_api_free_item_list(list);
 	return false;
@@ -2386,7 +2467,7 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		}
 	}
 
-	/* Quest: start + set active objective (Not Started detail Enter). star_api_start_quest_then_set_active_objective — deploy fresh star_api.* with ODOOM (see Docs/Devs/ODOOM_UZDoom_Build_Sync.md). */
+	/* Quest: start + set active objective (Not Started detail Enter). star_api_start_quest_then_set_active_objective — deploy fresh star_api.* with ODOOM (see OASIS Omniverse/Docs/ODOOM_UZDoom_Build_Sync.md). */
 	{
 		FBaseCVar* chainVar = FindCVar("odoom_quest_start_then_track_do_it", nullptr);
 		if (g_star_initialized && chainVar && chainVar->GetRealType() == CVAR_Int && chainVar->GetGenericRep(CVAR_Int).Int != 0) {
@@ -3173,8 +3254,11 @@ static std::string ToStarItemName(const char* className) {
 	if (strstr(c, "HealthBonus")) return "Health Bonus";
 	if (strstr(c, "SoulSphere")) return "Soul Sphere";
 	if (strstr(c, "Megasphere")) return "Mega Sphere";
-	/* Powerups */
+	/* Powerups — classic Doom-style STAR row names (OASIS.* still recognized when reading inventory). */
 	if (strstr(c, "InvulnSphere") || strstr(c, "Invulnerability")) return "Invulnerability";
+	if (strstr(c, "RadSuit")) return "Radiation Suit";
+	if (strstr(c, "BlurSphere")) return "Blur Sphere";
+	if (strstr(c, "QuadDamage") || (strstr(c, "Quad") && strstr(c, "Damage"))) return "Quad Damage";
 	if (strstr(c, "Berserk")) return "Berserk";
 	if (strstr(c, "Backpack")) return "Backpack";
 	/* Weapons */
@@ -3428,6 +3512,14 @@ static bool StarTryInitializeAndAuthenticate(bool verbose) {
 	g_star_config.timeout_seconds = 30;
 	/* STAR client uses this for quest tracker rows (PickQuestTrackerObjectiveDisplayLine vs multi-game keys). */
 	g_star_config.client_game_source = "ODOOM";
+	{
+		const char* tr = (const char*)odoom_star_transport;
+		g_star_config.transport = ODOOM_StreqI(tr, "native") ? 1 : 0;
+	}
+	{
+		const char* dna = (const char*)odoom_oasis_dna_path;
+		g_star_config.oasis_dna_path = (dna && dna[0]) ? dna : nullptr;
+	}
 	if (logVerbose) {
 		StarLogInfo(
 			"Init/auth start (base_url=%s, has_api_key=%s, has_avatar_id=%s, has_username=%s, has_password=%s)",
@@ -3660,7 +3752,6 @@ void UZDoom_STAR_Init(void) {
 		}
 		g_odoom_reapply_json_frames = 70;
 		ODOOM_EnsureOasisstarJsonOnDisk();
-		ODOOM_EnsureDefaultOasisstarDna(g_odoom_json_config_path.empty() ? std::string("oasisstar.json") : g_odoom_json_config_path);
 	}
 	/* Always start with default Doom face until explicit beam-in. */
 	g_star_show_anorak_face = false;
@@ -3758,11 +3849,18 @@ int UZDoom_STAR_PreTouchSpecial(struct AActor* special) {
 		else if (ammoType && special->IsKindOf(ammoType)) type = "Ammo";
 		else if (cls && (strstr(cls, "Armor") || strstr(cls, "armor"))) type = "Armor";
 		else if (cls && (strstr(cls, "Health") || strstr(cls, "health") || strstr(cls, "Medikit") || strstr(cls, "Stimpack"))) type = "Health";
+		if (cls && (strstr(cls, "SoulSphere") || strstr(cls, "Megasphere") || strstr(cls, "InvulnSphere")
+			|| strstr(cls, "RadSuit") || strstr(cls, "BlurSphere"))) {
+			type = "Powerup";
+		}
 
 		g_star_pending_item_name = ToStarItemName(cls);
 		{
 			int hamt = GetHealthOrArmorAmount(cls);
-			if (hamt > 0 && (type == std::string("Health") || type == std::string("Armor"))) {
+			if (cls && strstr(cls, "Megasphere")) {
+				g_star_pending_item_desc = "Megasphere pickup (+200 health, +200 armor)";
+				g_star_pending_item_amount = 1;
+			} else if (hamt > 0) {
 				g_star_pending_item_desc = g_star_pending_item_name + " (+" + std::to_string(hamt) + ")";
 				g_star_pending_item_amount = 1;  /* 1 qty like OQUAKE; (+X) in description */
 			} else {
@@ -3849,8 +3947,13 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 			int cur_health = pl->mo->health;
 			AActor* arm = pl->mo->FindInventory(FName("BasicArmor"), true);
 			int cur_armor = arm ? arm->IntVar(FName("Amount")) : 0;
-			const bool isHealthItem = (strstr(itemType, "Health") != nullptr || strstr(itemType, "health") != nullptr);
-			const bool isArmorItem = (strstr(itemType, "Armor") != nullptr || strstr(itemType, "armor") != nullptr);
+			const bool isPowerupType = (strstr(itemType, "owerup") != nullptr);
+			const bool nameIsMegaCombo = name && (ODOOM_NameEqualsCanon(name, kOasisMegaHealthArmor) || strstr(name, "Mega Sphere") != nullptr);
+			const bool nameIsMegaHealthStyle = name && (ODOOM_NameEqualsCanon(name, kOasisMegaHealth) || strstr(name, "Soul Sphere") != nullptr);
+			const bool isHealthItem = (strstr(itemType, "Health") != nullptr || strstr(itemType, "health") != nullptr)
+				|| (isPowerupType && (nameIsMegaHealthStyle || nameIsMegaCombo));
+			const bool isArmorItem = (strstr(itemType, "Armor") != nullptr || strstr(itemType, "armor") != nullptr)
+				|| (isPowerupType && nameIsMegaCombo);
 			const bool consumedHealth = isHealthItem && cur_health > g_star_pre_touch_health;
 			const bool consumedArmor = isArmorItem && cur_armor > g_star_pre_touch_armor;
 			Printf(PRINT_NONOTIFY,
@@ -3915,7 +4018,8 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 		std::string key = std::string(name) + "|" + (itemType ? itemType : "Item");
 		int now = I_GetTime();
 		const bool debounceExempt = itemType && (strstr(itemType, "Health") || strstr(itemType, "health") ||
-			strstr(itemType, "Armor") || strstr(itemType, "armor"));
+			strstr(itemType, "Armor") || strstr(itemType, "armor")
+			|| (strstr(itemType, "owerup") != nullptr && name && ODOOM_ItemNameIsCanonicalPhase1Powerup(name)));
 		if (!debounceExempt && key == g_star_last_generic_key && (now - g_star_last_generic_tic) < g_star_generic_debounce_ticks)
 			return;
 		if (!debounceExempt) {
@@ -3933,7 +4037,9 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 	int qty = 1;
 	if ((keynum == STAR_PICKUP_GENERIC_ITEM || keynum == STAR_PICKUP_WEAPON) && g_star_has_pending_item) {
 		/* Health/armor: 1 qty with (+X) in desc (like OQUAKE); ammo/weapons use amount or 1 */
-		if (isArmor || (itemType && (strstr(itemType, "Health") != nullptr || strstr(itemType, "health") != nullptr)))
+		if (isArmor || (itemType && (strstr(itemType, "Health") != nullptr || strstr(itemType, "health") != nullptr))
+			|| (isPowerup && name && (ODOOM_NameEqualsCanon(name, kOasisMegaHealth) || ODOOM_NameEqualsCanon(name, kOasisMegaHealthArmor)
+				|| strstr(name, "Soul Sphere") != nullptr || strstr(name, "Mega Sphere") != nullptr)))
 			qty = 1;
 		else
 			qty = (g_star_pending_item_amount > 0) ? g_star_pending_item_amount : 1;
