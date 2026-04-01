@@ -195,7 +195,8 @@ class AltHud ui
 					: String.Format("%i/%i ", Level.killed_monsters, Level.total_monsters));
 			}
 
-			if (hud_showtimestat)
+			// ODOOM: suppress hud_showtimestat (duplicate map time vs shared_sbar).
+			if (false && hud_showtimestat)
 			{
 				String s;
 				let seconds = Thinker.Tics2Seconds(level.time);
@@ -780,7 +781,8 @@ class AltHud ui
 	//---------------------------------------------------------------------------
 	virtual bool DrawTime(int y)
 	{
-		if (hud_showtime > 0 && hud_showtime <= 9)
+		// ODOOM: single map clock in shared_sbar (left); suppress duplicate AltHUD top-right time.
+		if (false && hud_showtime > 0 && hud_showtime <= 9)
 		{
 			int timeSeconds;
 			String timeString;
@@ -948,13 +950,15 @@ class AltHud ui
 		int fonth = font.GetHeight() + 1;
 		int bottom = hudheight - 1;
 
-		if (am_showtotaltime)
+		// ODOOM: suppress DrawAutomap duplicate time
+		if (false && am_showtotaltime)
 		{
 			DrawTimeString(font, hudcolor_ttim, Level.totaltime, hudwidth-2, bottom, 1);
 			bottom -= fonth;
 		}
 
-		if (am_showtime)
+		// ODOOM: suppress DrawAutomap duplicate time
+		if (false && am_showtime)
 		{
 			if (Level.clusterflags & Level.CLUSTER_HUB)
 			{

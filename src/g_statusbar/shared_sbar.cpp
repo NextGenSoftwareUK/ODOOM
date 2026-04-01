@@ -547,7 +547,8 @@ void DBaseStatusBar::DoDrawAutomapHUD(int crdefault, int highlight)
 		if (!font->CanPrint(GStrings.GetString("AM_MONSTERS")) || !font->CanPrint(GStrings.GetString("AM_SECRETS")) || !font->CanPrint(GStrings.GetString("AM_ITEMS"))) font2 = OriginalSmallFont;
 	}
 
-	if (am_showtime)
+	// ODOOM: suppress duplicate automap HUD time
+	if (false && am_showtime)
 	{
 		sec = Tics2Seconds(primaryLevel->time);
 		textbuffer.Format("%02d:%02d:%02d", sec / 3600, (sec % 3600) / 60, sec % 60);
@@ -556,7 +557,8 @@ void DBaseStatusBar::DoDrawAutomapHUD(int crdefault, int highlight)
 		y += fheight;
 	}
 
-	if (am_showtotaltime)
+	// ODOOM: suppress duplicate automap HUD time
+	if (false && am_showtotaltime)
 	{
 		sec = Tics2Seconds(primaryLevel->totaltime);
 		textbuffer.Format("%02d:%02d:%02d", sec / 3600, (sec % 3600) / 60, sec % 60);
@@ -1201,7 +1203,19 @@ void DBaseStatusBar::DrawTopStuff (EHudState state)
 		double yVersion = twod->GetHeight() - 18;
 		double xVersion = twod->GetWidth() - SmallFont->StringWidth(verText.GetChars()) * CleanXfac - 4;
 		DrawText(twod, SmallFont, CR_TAN, xVersion, yVersion, verText.GetChars(), DTA_CleanNoMove, true, TAG_DONE);
-		FBaseCVar *starUserVar = FindCVar("odoom_star_username", nullptr);
+
+		// ODOOM level timer HUD: left, SmallFont, just above status bar (only ODOOM map clock; patch dedupes stray duplicates).
+		{
+			const int ticsMT = primaryLevel ? primaryLevel->maptime : 0;
+			const int totalSecsMT = ticsMT / 35;
+			const int mMT = totalSecsMT / 60;
+			const int sMT = totalSecsMT % 60;
+			FString mapTimeStr;
+			mapTimeStr.Format("%d:%02d", mMT, sMT);
+			const double yMapTime = yVersion - SmallFont->GetHeight() * CleanYfac - 2;
+			const double xMapTime = 4.;
+			DrawText(twod, SmallFont, CR_WHITE, xMapTime, yMapTime, mapTimeStr.GetChars(), DTA_CleanNoMove, true, TAG_DONE);
+		}		FBaseCVar *starUserVar = FindCVar("odoom_star_username", nullptr);
 		const char *starUser = (starUserVar && starUserVar->GetRealType() == CVAR_String) ? starUserVar->GetGenericRep(CVAR_String).String : nullptr;
 		FString beamedText = (starUser && *starUser) ? FString("Beamed In: ") + starUser : "Beamed In: None";
 		DrawText(twod, SmallFont, CR_TAN, 4, 2, beamedText.GetChars(), DTA_CleanNoMove, true, TAG_DONE);
