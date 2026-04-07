@@ -1,6 +1,6 @@
 # Introduction
 
-ODOOM is a fork of UZDOOM and is built on top of the new OGEngine (STARAPIClient, WEB4 OASIS API & WEB5 STAR API).
+ODOOM is a fork of [UZDOOM](https://github.com/UZDoom/UZDoom) and is built on top of the new OGEngine (STARAPIClient, WEB4 OASIS API & WEB5 STAR API).
 
 This will integrate with any other game built on top of the OGEngine, so far this includes OQUAKE, which is also playable on Windows & Linux (ODOOM also). Mac support is coming soon... Linux version may work with some tweaks but this has not been tested yet... any help with this would be appreciated thanks!
 
