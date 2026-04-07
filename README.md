@@ -1,96 +1,105 @@
-<div align="center">
+# Introduction
 
-[ <img src="branding/misc/logo-bg.svg" alt="UZDoom Icon" style="height: 8em; width: 100%" /> ][repo]
+ODOOM is a fork of UZDOOM and is built on top of the new OGEngine (STARAPIClient, WEB4 OASIS API & WEB5 STAR API).
 
-</div>
+This will integrate with any other game built on top of the OGEngine, so far this includes OQUAKE, which is also playable on Windows & Linux (ODOOM also). Mac support is coming soon... Linux version may work with some tweaks but this has not been tested yet... any help with this would be appreciated thanks!
 
-## Welcome to UZDoom!
+The STARAPIClient can be downloaded here:
+https://github.com/NextGenSoftwareUK/OASIS/releases/tag/STAR-API-CLIENT-v1.0.0
 
-[![Continuous Integration][badge_git]][status_git]
-[![Engine Translation status][badge_trans]][status_trans]
-[![Game Translation status][badge_trans_games]][status_trans_games]
+Below is a link to a tech demo of what it can do in ODOOM & OQUAKE:
+https://youtu.be/ZH5u6OVPVYg?si=qbz8CfXs5kgWYPSn
 
-**UZDoom** is a modern, feature-rich source port for the classic game **DOOM**.
+Below is the useful description from that video:
 
-A continuation of [ZDoom][zdoom] and [GZDoom][gzdoom], UZDoom enhances the original DOOM engine, providing advanced features like:
+"Preview of the new OGEngine (OASIS Game Engine) powering ODOOM and OQUAKE (forks of UZDOOM & VkQuake) built on top of the new STARAPIClient (which talks to the WEB4 OASIS API & WEB5 STAR API) and features many advanced features such as multi-threading, batching, etc). OGEngine = STARAPIClient + WEB4 OASIS API + WEB5 STAR API and is the beginning of the true open extendable metaverse (OASIS Omniverse) featuring cross quests, cross inventory/assets, SSO, NFT minting, sending items to other avatars/clans & much more! :)
 
-* High-Resolution Graphics
-* Dynamic lighting
-* 3D Floors
-* Extensive Modding Support
-* Support for modern OpenGL and Vulkan renderers
+We bridged Doom and Quake using OASIS creating a “meta” game of the two. This engine abstracts mission and game state logic, offering a new dimension to open source games. This is a key milestone in our journey to building the metaverse.
 
-UZDoom is **free and open-source software**, built and maintained by a dedicated community of developers and enthusiasts.
+People can now port any game to the OASIS Omniverse using the new generic STARAPI Client, we are porting Doom3, Duke3d, Wolfenstein, Minecraft clone, Morrowwind MMORPG clone next...
 
-## 🙏 Acknowledgments
+Stay tuned folks, we are only just getting started! ;-)
 
-UZDoom would not be possible without the foundational work of many people. We extend our immense gratitude to:
+Read more here:
 
-* **id Software** for creating the original DOOM and releasing its source code.
-* **Marisa Heit** for her foundational work on ZDoom, and **Christoph Oelckers** for his work on GZDoom.
-* The countless modders, mappers, and artists in the DOOM community who continue to create amazing content.
-* All the contributors who have submitted code, reported bugs, and helped improve the project over the years.
+https://github.com/NextGenSoftwareUK/OASIS/blob/master/OASIS%20Omniverse/Docs/OGEngine_Overview.md
+https://github.com/NextGenSoftwareUK/OASIS/tree/master/OASIS%20Omniverse
 
-The **UZDoom Icon** was designed by **Carlos "Cardboard Marty" Sanchez**, copyrighted to the UZDoom Team, and licensed under **Creative Commons BY-SA 4.0**.
+The OGEngine also allows GeoHotSpot triggers to be embedded in your games either in a quest, objective or standalone. They can trigger anything you like such as playing an audio clip, video, showing text, website, scripting events, NPCs (powered by intelligent learning AI agents such as OpenServ) etc etc. There is no limit to what you can do with the new OGEngine!
 
-See the [CONTRIBUTORS](CONTRIBUTORS) file for a full list of code contributors.
+We will soon also be releasing the alphas of ODOOM, OQUAKE & Our World, our geolocation AR game powered by the OGEngine that allows your cross game quests to bring the action into the real world so imagine collecting keys or powerups etc for ODOOM & OQUAKE in real life! You may even find secrets hidden in parks such as the BFG 9000 and other surprises! ;-)
 
-## 📄 Legal
+An epic mission quest line spamming all 3 games as a demo of the tech is coming soon... watch this space! ;-)
 
-UZDoom is licensed under the **GNU General Public License (GPL) version 3 or any later version (GPLv3+)**.
+We are also working on the OOS (OASIS OS) which as well as a low level kernel allowing multiple games to be loaded into memory simultaneously also contains the OASIS Omniverse HUB allowing you to instantly teleport between any location in any map in any game (both through portals in the HUB & whilst in any game) removing walled gardens and silos between games so they merge into the same game (think Ready Player One). It also has a shared HUD over everything so there is a consistent UI for your inventory, quests, friends, messages, avatar etc.
 
-This program is distributed in the hope that it will be useful, but **WITHOUT ANY WARRANTY**. See the GNU General Public License for more details.
+We plan to make super cyber demons and other AI monsters and NPCs powered by holonic braid with collective shared memory so they share tactics and strategies... hope your Ready for a real challenge! 😉💪 We also plan to have AI tournaments where we pit different models against each other!
 
-You can view the full license text here: <https://www.gnu.org/licenses/>
+The OGEngine is built on top of the powerful holonic OASIS architecture that has been in development for over 10 years featuring auto failover, auto load-balancing & auto-replication powered by the OASIS Hyperdrive so there is zero downtime and you can even play offline and re-sync when you are back online so ideal for poor to low connectivity or for traveling! If one web2 or web3 provider goes down or is slow it will automatically find the next fastest ONODE in your area independent of network! :)
 
-**Copyrights:**
-* Copyright 1993-1996 id Software
-* Copyright 1999-2016 Marisa Heit
-* Copyright 2002-2016 Christoph Oelckers
-* Copyright 2017-2025 GZDoom Maintainers and Contributors
-* Copyright 2025-2026 UZDoom Maintainers and Contributors
+The WEB4 OASIS API is an abstraction/aggreation layer over all of web2 and web3 removing walled gardens & silos and features identity, reputation, nfts, tokens, geonfts & much more!
 
-## 🌐 Resources
+The WEB5 STAR API is the gamification, business and metaverse layer built on top of the WEB4 OASIS API.
 
-* [Home Page][home]
-* [Wiki][wiki]
-* [Discord Server][community]
-* [Forum][forum]
-* [Engine Translation][status_trans]
-* [Game Translation][status_trans_games]
+STAR CLI/ODK is a powerful CLI & Low/No Code Generator allowing you to build OAPPs powered by the COSMIC ORM allowing you to create, read, update, delete & list your holons (data objects) in 1 line which auto sync over all of web2 and web3, no need to learn new stacks, languages or platforms, just focus on your idea and bring them to life with zero friction or barriers! If you want to also run it on a new chain, cloud provider, db or anything else in future this is handled automatically by the OASIS, no need to have to keep porting or writing fragile bridges, we do all the heavy lifting for you!
 
-### 🛠️ Building UZDoom
+Check out the rest of our docs in our repro and our sites below for more info!
 
-To build UZDoom from source, please see UZDoom's GitHub [wiki][gh_wiki] for a full list of dependencies and detailed instructions. Build For [Linux][gh_linux] / [Windows][gh_windows] / [MacOS][gh_apple]
+Welcome to the future, welcome to the genesis of the true metaverse! ;-)
 
-<div align="center">
+https://www.oasisweb4.com/
+https://www.ourworldthegame.com/
+https://github.com/NextGenSoftwareUK/OASIS"
 
-[ <img src="branding/UZDoom%20Banner.svg" alt="UZDoom Footer" style="height: 8em; width: 100%" /> ][repo]
+The docs in here: https://github.com/NextGenSoftwareUK/OASIS/tree/master/OASIS%20Omniverse explain how to use the client, ODOOM & OQUAKE with build instructions for Windows, Linux & Mac. You can also see the ODOOM & OQUAKE examples of how to use it.
 
-[<img alt="Translation status" style="width: 49%" src="https://hosted.weblate.org/widget/uzdoom/open-graph.png" />][status_trans]
-[<img alt="Translation status" style="width: 49%" src="https://hosted.weblate.org/widget/doom-engine-games/open-graph.png" />][status_trans_games]
+# Getting Started
 
-</div>
+1. Simply download the appropriate zip below,  unzip and then run the RUN ODOOM script.
 
-[gzdoom]: https://github.com/ZDoom/gzdoom/
-[zdoom]: https://github.com/rheit/zdoom/
+2. You can edit the [oasisstar.json](https://github.com/NextGenSoftwareUK/OASIS/blob/master/OASIS%20Omniverse/ODOOM/build/oasisstar.json) file in the build folder to configure it including the WEB4 OASIS API & WEB5 STAR API URIs. They currently point locally so your need to run the 
+[stat web4 and web5 apis](https://github.com/NextGenSoftwareUK/OASIS/blob/master/Scripts/start_web4_and_web5_apis.bat) script for windows or [this script](https://github.com/NextGenSoftwareUK/OASIS/blob/master/Scripts/start_web4_and_web5_apis.sh) for Linux/Mac in the Scripts folder in the root of the OASIS repro.
 
-[repo]: https://github.com/UZDoom/UZDoom/
-[home]: https://zdoom.org/
-[wiki]: https://zdoom.org/wiki/
-[forum]: https://forum.zdoom.org/
-[community]: https://dsc.gg/zdoom
+3. You also need to create an avatar in [STAR](https://github.com/NextGenSoftwareUK/OASIS/releases/tag/STAR-ODK-Runtime-v3.5.0) verify it.
 
-[gh_wiki]: https://github.com/UZDoom/UZDoom/wiki/
-[gh_linux]: https://github.com/UZDoom/UZDoom/wiki/Compilation#linux
-[gh_windows]: https://github.com/UZDoom/UZDoom/wiki/Compilation#windows
-[gh_apple]: https://github.com/UZDoom/UZDoom/wiki/Compilation#macos
+   Soon you will be able to create your avatar via the OPORTAL, you can then update your [oasisstar.json](https://github.com/NextGenSoftwareUK/OASIS/blob/master/OASIS%20Omniverse/ODOOM/build/oasisstar.json) config file in your build folder to:
 
-[status_git]: https://github.com/UZDoom/UZDoom/actions/workflows/continuous_integration.yml
-[badge_git]: https://github.com/UZDoom/UZDoom/actions/workflows/continuous_integration.yml/badge.svg
+   WEB4 OASIS API URL
+   https://api.oasisweb4.one
 
-[badge_trans]: https://hosted.weblate.org/widget/uzdoom/svg-badge.svg
-[status_trans]: https://hosted.weblate.org/engage/uzdoom/
+   WEB5 STAR API
+   https://star.oasisweb4.one
 
-[badge_trans_games]: https://hosted.weblate.org/widget/doom-engine-games/svg-badge.svg
-[status_trans_games]: https://hosted.weblate.org/engage/doom-engine-games/
+4. Your need to also copy a valid wad file such as DOOM.WAD or DOOM2.WAD from your retail game into the build folder so ODOOM can find it. If you do not have WAD files you could always check out [FreeDoom](https://freedoom.github.io/) and use the WAD files from there.
+
+5. Finally you can launch ODOOM by running the RUN ODOOM script. 
+
+6. Once the game has started press the ` key to open the in-game console.
+
+7. In the console type the following to beam in:
+
+   ````star beamin <username> <password>````
+
+   After this it will automatically beam in every time you start OQUAKE.
+
+8. For a full list of what every setting does in the [oasisstar.json](https://github.com/NextGenSoftwareUK/OASIS/blob/master/OASIS%20Omniverse/ODOOM/build/oasisstar.json) file please read the [STAR Games User Guide](https://github.com/NextGenSoftwareUK/OASIS/blob/master/OASIS%20Omniverse/Docs/STAR_Games_User_Guide.md)
+
+# Controls
+
+Press I for inventory popup.
+
+Press Q for Quests.
+
+Press O to cycle Quest objectives for the active quest in the Quest Tracker. You can also hide it if you wish.
+
+Press X to toggle showing/hiding XP.
+
+Press C for ````Quick Use Health```` if you have any in inventory and are not already at max. Max can be configured in [oasisstar.json](https://github.com/NextGenSoftwareUK/OASIS/blob/master/OASIS%20Omniverse/ODOOM/build/oasisstar.json)
+
+Press F for ````Quick Use Armor```` if you have any in your inventory and are not already at max. Max can be configured in [oasisstar.json](https://github.com/NextGenSoftwareUK/OASIS/blob/master/OASIS%20Omniverse/ODOOM/build/oasisstar.json)
+
+# ODOOM Editor
+
+ODOOM also ships with the ODOOM Editor (fork of the popular Ultimate Doom Editor) that allows you to place ODOOM & OQUAKE assets (monsters, powerups, keys, weapons, ammo, Armor etc) into any ODOOM map/wad file.  You will find a STAR toolbar & menu allowing you to do this. You can launch the editor from the main menu when you run the RUN_ODOOM script.
+
+More news & releases coming soon!
