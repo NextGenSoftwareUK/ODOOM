@@ -1,4 +1,4 @@
-/*
+﻿/*
 ** a_keys.cpp
 **
 ** Implements all keys and associated data
@@ -31,7 +31,7 @@
 #include "v_font.h"
 #include "vm.h"
 #include "g_levellocals.h"
-#include "uzdoom_star_integration.h"
+#include "uzdoom_ogengine_integration.h"
 
 //===========================================================================
 //

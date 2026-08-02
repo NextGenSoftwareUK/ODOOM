@@ -1,4 +1,4 @@
-/*
+﻿/*
 ** d_main.cpp
 **
 ** DOOM main program and game loop
@@ -55,7 +55,7 @@
 #include "d_main.h"
 #include "d_net.h"
 #ifdef OASIS_STAR_API
-#include "uzdoom_star_integration.h"
+#include "uzdoom_ogengine_integration.h"
 #endif
 #include "d_netinf.h"
 #include "decallib.h"
@@ -109,7 +109,7 @@
 #include "st_stuff.h"
 #include "startscreen.h"
 #ifdef OASIS_STAR_API
-#include "uzdoom_star_integration.h"
+#include "uzdoom_ogengine_integration.h"
 #endif
 #include "swrenderer/r_swcolormaps.h"
 #include "teaminfo.h"

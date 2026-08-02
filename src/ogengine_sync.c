@@ -1,23 +1,23 @@
-/**
+﻿/**
  * OASIS STAR API - Generic game integration layer implementation.
  * Async auth, async inventory (with optional local-item sync), single-item sync.
  * Compiles on Windows (Win32 threads) and elsewhere (pthreads).
  */
 
-#include "star_sync.h"
+#include "ogengine_sync.h"
 #include <string.h>
 #include <stdlib.h>
 
-#ifndef STAR_API_HAS_SEND_ITEM
-extern star_api_result_t star_api_send_item_to_avatar(const char*, const char*, int, const char*);
-extern star_api_result_t star_api_send_item_to_clan(const char*, const char*, int, const char*);
+#ifndef OGENGINE_HAS_SEND_ITEM
+extern ogengine_result_t ogengine_send_item_to_avatar(const char*, const char*, int, const char*);
+extern ogengine_result_t ogengine_send_item_to_clan(const char*, const char*, int, const char*);
 #endif
 
-/* Optional stub for star_api_queue_quest_level_time when not linking star_api.dll (e.g. vkQuake with older lib).
- * Define STAR_API_PROVIDE_QUEST_LEVEL_TIME_STUB in the build to resolve LNK2001; otherwise link with a
+/* Optional stub for ogengine_queue_quest_level_time when not linking star_api.dll (e.g. vkQuake with older lib).
+ * Define OGENGINE_PROVIDE_QUEST_LEVEL_TIME_STUB in the build to resolve LNK2001; otherwise link with a
  * STAR API build that exports this (StarApiClient.cs UnmanagedCallersOnly). */
-#ifdef STAR_API_PROVIDE_QUEST_LEVEL_TIME_STUB
-void star_api_queue_quest_level_time(const char* game_source, int level_elapsed_seconds)
+#ifdef OGENGINE_PROVIDE_QUEST_LEVEL_TIME_STUB
+void ogengine_queue_quest_level_time(const char* game_source, int level_elapsed_seconds)
 {
     (void)game_source;
     (void)level_elapsed_seconds;
@@ -59,7 +59,7 @@ static char g_auth_username_out[AUTH_USERNAME_SIZE];
 static char g_auth_avatar_id_out[AUTH_AVATAR_SIZE];
 static char g_auth_jwt_out[AUTH_JWT_SIZE];
 static char g_auth_error_msg[AUTH_ERROR_SIZE];
-static star_sync_auth_on_done_fn g_auth_on_done = NULL;
+static ogengine_sync_auth_on_done_fn g_auth_on_done = NULL;
 static void* g_auth_on_done_user = NULL;
 
 #ifdef _WIN32
@@ -76,8 +76,8 @@ static DWORD WINAPI auth_thread_proc(LPVOID param) {
 static void* auth_thread_proc(void* param) {
 #endif
     char user[AUTH_USERNAME_SIZE], pass[64];
-    star_api_result_t auth_result = STAR_API_ERROR_NOT_INITIALIZED;
-    star_api_result_t avatar_result = STAR_API_ERROR_NOT_INITIALIZED;
+    ogengine_result_t auth_result = OGENGINE_ERROR_NOT_INITIALIZED;
+    ogengine_result_t avatar_result = OGENGINE_ERROR_NOT_INITIALIZED;
     char avatar_id[AUTH_AVATAR_SIZE] = {0};
     const char* err = NULL;
 
@@ -94,13 +94,13 @@ static void* auth_thread_proc(void* param) {
 #endif
 
     /* Authenticate and capture JWT in one call so games can persist to oasisstar.json (no dependency on get_current_jwt export). */
-    auth_result = star_api_authenticate_with_jwt_out(user, pass, g_auth_jwt_out, sizeof(g_auth_jwt_out));
-    if (auth_result == STAR_API_SUCCESS) {
-        avatar_result = star_api_get_avatar_id(avatar_id, sizeof(avatar_id));
-        if (avatar_result != STAR_API_SUCCESS)
-            err = star_api_get_last_error();
+    auth_result = ogengine_authenticate_with_jwt_out(user, pass, g_auth_jwt_out, sizeof(g_auth_jwt_out));
+    if (auth_result == OGENGINE_SUCCESS) {
+        avatar_result = ogengine_get_avatar_id(avatar_id, sizeof(avatar_id));
+        if (avatar_result != OGENGINE_SUCCESS)
+            err = ogengine_get_last_error();
     } else {
-        err = star_api_get_last_error();
+        err = ogengine_get_last_error();
     }
 
 #ifdef _WIN32
@@ -110,7 +110,7 @@ static void* auth_thread_proc(void* param) {
 #endif
     g_auth_in_progress = 0;
     g_auth_has_result = 1;
-    g_auth_success = (auth_result == STAR_API_SUCCESS && avatar_result == STAR_API_SUCCESS) ? 1 : 0;
+    g_auth_success = (auth_result == OGENGINE_SUCCESS && avatar_result == OGENGINE_SUCCESS) ? 1 : 0;
     str_copy(g_auth_username_out, user, sizeof(g_auth_username_out));
     str_copy(g_auth_avatar_id_out, avatar_id, sizeof(g_auth_avatar_id_out));
     str_copy(g_auth_error_msg, err ? err : "", sizeof(g_auth_error_msg));
@@ -123,7 +123,7 @@ static void* auth_thread_proc(void* param) {
 #endif
 }
 
-void star_sync_auth_start(const char* username, const char* password, star_sync_auth_on_done_fn on_done, void* user_data) {
+void ogengine_sync_auth_start(const char* username, const char* password, ogengine_sync_auth_on_done_fn on_done, void* user_data) {
 #ifdef _WIN32
     EnterCriticalSection(&g_auth_lock);
 #else
@@ -137,7 +137,7 @@ void star_sync_auth_start(const char* username, const char* password, star_sync_
 #endif
         return;
     }
-    /* Thread finished but star_sync_pump() has not run the on_done callback yet — do not clear buffers or start a second SSO. */
+    /* Thread finished but ogengine_sync_pump() has not run the on_done callback yet — do not clear buffers or start a second SSO. */
     if (g_auth_has_result) {
 #ifdef _WIN32
         LeaveCriticalSection(&g_auth_lock);
@@ -161,7 +161,7 @@ void star_sync_auth_start(const char* username, const char* password, star_sync_
 #endif
 }
 
-int star_sync_auth_poll(void) {
+int ogengine_sync_auth_poll(void) {
 #ifdef _WIN32
     EnterCriticalSection(&g_auth_lock);
 #else
@@ -191,7 +191,7 @@ int star_sync_auth_poll(void) {
     return -1;
 }
 
-int star_sync_auth_get_result(int* success_out,
+int ogengine_sync_auth_get_result(int* success_out,
     char* username_buf, size_t username_size,
     char* avatar_id_buf, size_t avatar_id_size,
     char* error_msg_buf, size_t error_msg_size) {
@@ -221,7 +221,7 @@ int star_sync_auth_get_result(int* success_out,
     return 1;
 }
 
-void star_sync_auth_get_result_jwt(char* jwt_buf, size_t jwt_size) {
+void ogengine_sync_auth_get_result_jwt(char* jwt_buf, size_t jwt_size) {
     if (!jwt_buf || !jwt_size) return;
 #ifdef _WIN32
     EnterCriticalSection(&g_auth_lock);
@@ -236,7 +236,7 @@ void star_sync_auth_get_result_jwt(char* jwt_buf, size_t jwt_size) {
 #endif
 }
 
-int star_sync_auth_in_progress(void) {
+int ogengine_sync_auth_in_progress(void) {
 #ifdef _WIN32
     EnterCriticalSection(&g_auth_lock);
 #else
@@ -251,7 +251,7 @@ int star_sync_auth_in_progress(void) {
     return in_progress;
 }
 
-void star_sync_auth_force_reset(void) {
+void ogengine_sync_auth_force_reset(void) {
 #ifdef _WIN32
     EnterCriticalSection(&g_auth_lock);
 #else
@@ -271,20 +271,20 @@ void star_sync_auth_force_reset(void) {
  * --------------------------------------------------------------------------- */
 #define INV_ERROR_SIZE 256
 
-static star_sync_local_item_t* g_inv_local_items = NULL;
+static ogengine_sync_local_item_t* g_inv_local_items = NULL;
 static int g_inv_local_count = 0;
 static char g_inv_default_game_source[64] = {0};
 static int g_inv_in_progress = 0;
 static int g_inv_has_result = 0;
-static star_item_list_t* g_inv_list = NULL;
-static star_api_result_t g_inv_result = STAR_API_ERROR_NOT_INITIALIZED;
+static ogengine_item_list_t* g_inv_list = NULL;
+static ogengine_result_t g_inv_result = OGENGINE_ERROR_NOT_INITIALIZED;
 static char g_inv_error_msg[INV_ERROR_SIZE] = {0};
 static char g_inv_add_item_error[INV_ERROR_SIZE] = {0}; /* first add_item failure reason (e.g. "Avatar ID is not set...") */
-static star_sync_inventory_on_done_fn g_inv_on_done = NULL;
+static ogengine_sync_inventory_on_done_fn g_inv_on_done = NULL;
 static void* g_inv_on_done_user = NULL;
 
-/* Optional add_item log callback: set by star_sync_set_add_item_log_cb; invoked from main thread. */
-static star_sync_add_item_log_fn g_add_item_log_cb = NULL;
+/* Optional add_item log callback: set by ogengine_sync_set_add_item_log_cb; invoked from main thread. */
+static ogengine_sync_add_item_log_fn g_add_item_log_cb = NULL;
 static void* g_add_item_log_user = NULL;
 #define ADD_ITEM_LOG_NAMES_MAX 32
 #define ADD_ITEM_LOG_NAME_SIZE 128
@@ -325,7 +325,7 @@ static int g_send_in_progress = 0;
 static int g_send_has_result = 0;
 static int g_send_success = 0;
 static char g_send_error_msg[SEND_ERROR_SIZE] = {0};
-static star_sync_send_item_on_done_fn g_send_on_done = NULL;
+static ogengine_sync_send_item_on_done_fn g_send_on_done = NULL;
 static void* g_send_on_done_user = NULL;
 
 #define USE_ITEM_NAME_SIZE 256
@@ -344,7 +344,7 @@ static int g_use_in_progress = 0;
 static int g_use_has_result = 0;
 static int g_use_success = 0;
 static char g_use_error_msg[USE_ERROR_SIZE] = {0};
-static star_sync_use_item_on_done_fn g_use_on_done = NULL;
+static ogengine_sync_use_item_on_done_fn g_use_on_done = NULL;
 static void* g_use_on_done_user = NULL;
 
 #ifdef _WIN32
@@ -369,10 +369,10 @@ static void* use_item_thread_proc(void* param) {
 #else
     pthread_mutex_unlock(&g_use_lock);
 #endif
-    star_api_queue_use_item(item_name, context[0] ? context : "unknown");
-    used = (star_api_flush_use_item_jobs() == STAR_API_SUCCESS);
+    ogengine_queue_use_item(item_name, context[0] ? context : "unknown");
+    used = (ogengine_flush_use_item_jobs() == OGENGINE_SUCCESS);
     if (!used)
-        err = star_api_get_last_error();
+        err = ogengine_get_last_error();
 #ifdef _WIN32
     EnterCriticalSection(&g_use_lock);
 #else
@@ -391,7 +391,7 @@ static void* use_item_thread_proc(void* param) {
 #endif
 }
 
-void star_sync_use_item_start(const char* item_name, const char* context, star_sync_use_item_on_done_fn on_done, void* user_data) {
+void ogengine_sync_use_item_start(const char* item_name, const char* context, ogengine_sync_use_item_on_done_fn on_done, void* user_data) {
 #ifdef _WIN32
     EnterCriticalSection(&g_use_lock);
 #else
@@ -420,7 +420,7 @@ void star_sync_use_item_start(const char* item_name, const char* context, star_s
 #endif
 }
 
-int star_sync_use_item_get_result(int* success_out, char* error_msg_buf, size_t error_msg_size) {
+int ogengine_sync_use_item_get_result(int* success_out, char* error_msg_buf, size_t error_msg_size) {
 #ifdef _WIN32
     EnterCriticalSection(&g_use_lock);
 #else
@@ -445,7 +445,7 @@ int star_sync_use_item_get_result(int* success_out, char* error_msg_buf, size_t 
     return 1;
 }
 
-int star_sync_use_item_in_progress(void) {
+int ogengine_sync_use_item_in_progress(void) {
 #ifdef _WIN32
     EnterCriticalSection(&g_use_lock);
 #else
@@ -467,7 +467,7 @@ static void* send_item_thread_proc(void* param) {
 #endif
     char target[SEND_TARGET_SIZE], item_name[SEND_ITEM_NAME_SIZE], item_id[SEND_ITEM_ID_SIZE];
     int qty, to_clan;
-    star_api_result_t res = STAR_API_ERROR_NOT_INITIALIZED;
+    ogengine_result_t res = OGENGINE_ERROR_NOT_INITIALIZED;
     const char* err = NULL;
 
     (void)param;
@@ -490,12 +490,12 @@ static void* send_item_thread_proc(void* param) {
 
     if (qty < 1) qty = 1;
     if (to_clan)
-        res = star_api_send_item_to_clan(target, item_name, qty, item_id[0] ? item_id : NULL);
+        res = ogengine_send_item_to_clan(target, item_name, qty, item_id[0] ? item_id : NULL);
     else
-        res = star_api_send_item_to_avatar(target, item_name, qty, item_id[0] ? item_id : NULL);
+        res = ogengine_send_item_to_avatar(target, item_name, qty, item_id[0] ? item_id : NULL);
 
-    if (res != STAR_API_SUCCESS)
-        err = star_api_get_last_error();
+    if (res != OGENGINE_SUCCESS)
+        err = ogengine_get_last_error();
 
 #ifdef _WIN32
     EnterCriticalSection(&g_send_lock);
@@ -504,7 +504,7 @@ static void* send_item_thread_proc(void* param) {
 #endif
     g_send_in_progress = 0;
     g_send_has_result = 1;
-    g_send_success = (res == STAR_API_SUCCESS) ? 1 : 0;
+    g_send_success = (res == OGENGINE_SUCCESS) ? 1 : 0;
     str_copy(g_send_error_msg, err ? err : "", sizeof(g_send_error_msg));
 #ifdef _WIN32
     LeaveCriticalSection(&g_send_lock);
@@ -515,7 +515,7 @@ static void* send_item_thread_proc(void* param) {
 #endif
 }
 
-void star_sync_send_item_start(const char* target, const char* item_name, int quantity, int to_clan, const char* item_id, star_sync_send_item_on_done_fn on_done, void* user_data) {
+void ogengine_sync_send_item_start(const char* target, const char* item_name, int quantity, int to_clan, const char* item_id, ogengine_sync_send_item_on_done_fn on_done, void* user_data) {
 #ifdef _WIN32
     EnterCriticalSection(&g_send_lock);
 #else
@@ -547,7 +547,7 @@ void star_sync_send_item_start(const char* target, const char* item_name, int qu
 #endif
 }
 
-int star_sync_send_item_poll(void) {
+int ogengine_sync_send_item_poll(void) {
 #ifdef _WIN32
     EnterCriticalSection(&g_send_lock);
 #else
@@ -577,7 +577,7 @@ int star_sync_send_item_poll(void) {
     return -1;
 }
 
-int star_sync_send_item_get_result(int* success_out, char* error_msg_buf, size_t error_msg_size) {
+int ogengine_sync_send_item_get_result(int* success_out, char* error_msg_buf, size_t error_msg_size) {
 #ifdef _WIN32
     EnterCriticalSection(&g_send_lock);
 #else
@@ -602,7 +602,7 @@ int star_sync_send_item_get_result(int* success_out, char* error_msg_buf, size_t
     return 1;
 }
 
-int star_sync_send_item_in_progress(void) {
+int ogengine_sync_send_item_in_progress(void) {
 #ifdef _WIN32
     EnterCriticalSection(&g_send_lock);
 #else
@@ -617,7 +617,7 @@ int star_sync_send_item_in_progress(void) {
     return in_progress;
 }
 
-void star_sync_init(void) {
+void ogengine_sync_init(void) {
     if (g_sync_initialized) return;
 #ifdef _WIN32
     InitializeCriticalSection(&g_auth_lock);
@@ -628,9 +628,9 @@ void star_sync_init(void) {
     g_sync_initialized = 1;
 }
 
-void star_sync_cleanup(void) {
+void ogengine_sync_cleanup(void) {
     if (!g_sync_initialized) return;
-    star_sync_inventory_clear_result();
+    ogengine_sync_inventory_clear_result();
 #ifdef _WIN32
     DeleteCriticalSection(&g_use_lock);
     DeleteCriticalSection(&g_send_lock);
@@ -640,14 +640,14 @@ void star_sync_cleanup(void) {
     g_sync_initialized = 0;
 }
 
-void star_sync_set_add_item_log_cb(star_sync_add_item_log_fn cb, void* user_data) {
+void ogengine_sync_set_add_item_log_cb(ogengine_sync_add_item_log_fn cb, void* user_data) {
     g_add_item_log_cb = cb;
     g_add_item_log_user = user_data;
 }
 
 /** Run pending completion callbacks on the main thread. Call once per frame. */
-void star_sync_pump(void) {
-    star_sync_auth_on_done_fn auth_fn = NULL;
+void ogengine_sync_pump(void) {
+    ogengine_sync_auth_on_done_fn auth_fn = NULL;
     void* auth_ud = NULL;
 #ifdef _WIN32
     EnterCriticalSection(&g_auth_lock);
@@ -668,13 +668,13 @@ void star_sync_pump(void) {
     if (auth_fn)
         auth_fn(auth_ud);
 
-    star_sync_inventory_on_done_fn inv_fn = NULL;
+    ogengine_sync_inventory_on_done_fn inv_fn = NULL;
     void* inv_ud = NULL;
     int add_log_count = 0;
     int add_log_success = 0;
     char add_log_names[ADD_ITEM_LOG_NAMES_MAX][ADD_ITEM_LOG_NAME_SIZE];
     char add_log_error[INV_ERROR_SIZE] = {0};
-    star_sync_add_item_log_fn add_log_cb = g_add_item_log_cb;
+    ogengine_sync_add_item_log_fn add_log_cb = g_add_item_log_cb;
     void* add_log_ud = g_add_item_log_user;
 #ifdef _WIN32
     EnterCriticalSection(&g_inv_lock);
@@ -708,7 +708,7 @@ void star_sync_pump(void) {
             add_log_cb(add_log_names[i], add_log_success, add_log_error, add_log_ud);
     }
 
-    star_sync_send_item_on_done_fn send_fn = NULL;
+    ogengine_sync_send_item_on_done_fn send_fn = NULL;
     void* send_ud = NULL;
 #ifdef _WIN32
     EnterCriticalSection(&g_send_lock);
@@ -729,7 +729,7 @@ void star_sync_pump(void) {
     if (send_fn)
         send_fn(send_ud);
 
-    star_sync_use_item_on_done_fn use_fn = NULL;
+    ogengine_sync_use_item_on_done_fn use_fn = NULL;
     void* use_ud = NULL;
 #ifdef _WIN32
     EnterCriticalSection(&g_use_lock);
@@ -756,11 +756,11 @@ static DWORD WINAPI inventory_thread_proc(LPVOID param) {
 #else
 static void* inventory_thread_proc(void* param) {
 #endif
-    star_sync_local_item_t* local;
+    ogengine_sync_local_item_t* local;
     int local_count;
     char default_src[64];
-    star_item_list_t* list = NULL;
-    star_api_result_t result = STAR_API_ERROR_NOT_INITIALIZED;
+    ogengine_item_list_t* list = NULL;
+    ogengine_result_t result = OGENGINE_ERROR_NOT_INITIALIZED;
     const char* err = NULL;
     char logged_names[ADD_ITEM_LOG_NAMES_MAX][ADD_ITEM_LOG_NAME_SIZE];
     int logged_count = 0;
@@ -805,7 +805,7 @@ static void* inventory_thread_proc(void* param) {
                     memcpy(base_name, n, base_len);
                     base_name[base_len] = '\0';
                     const char* nft = (local[i].nft_id[0] != '\0') ? local[i].nft_id : NULL;
-                    star_api_queue_add_item(
+                    ogengine_queue_add_item(
                         base_name,
                         local[i].description,
                         local[i].game_source[0] ? local[i].game_source : default_src,
@@ -814,9 +814,9 @@ static void* inventory_thread_proc(void* param) {
                     if (logged_count < ADD_ITEM_LOG_NAMES_MAX)
                         str_copy(logged_names[logged_count++], base_name, ADD_ITEM_LOG_NAME_SIZE);
                 } else {
-                    if (!star_api_has_item(local[i].name)) {
+                    if (!ogengine_has_item(local[i].name)) {
                         const char* nft = (local[i].nft_id[0] != '\0') ? local[i].nft_id : NULL;
-                        star_api_queue_add_item(
+                        ogengine_queue_add_item(
                             local[i].name,
                             local[i].description,
                             local[i].game_source[0] ? local[i].game_source : default_src,
@@ -829,19 +829,19 @@ static void* inventory_thread_proc(void* param) {
                 local[i].synced = 1;
             }
         }
-        star_api_result_t flush_res = star_api_flush_add_item_jobs();
-        if (flush_res != STAR_API_SUCCESS && g_inv_add_item_error[0] == '\0') {
-            const char* flush_err = star_api_get_last_error();
+        ogengine_result_t flush_res = ogengine_flush_add_item_jobs();
+        if (flush_res != OGENGINE_SUCCESS && g_inv_add_item_error[0] == '\0') {
+            const char* flush_err = ogengine_get_last_error();
             str_copy(g_inv_add_item_error, flush_err ? flush_err : "flush add_item jobs failed", sizeof(g_inv_add_item_error));
         }
     }
 
-    result = star_api_get_inventory(&list);
-    if (result != STAR_API_SUCCESS) {
-        err = star_api_get_last_error();
+    result = ogengine_get_inventory(&list);
+    if (result != OGENGINE_SUCCESS) {
+        err = ogengine_get_last_error();
         if (!err || !err[0]) err = "Unknown error";
     } else if (!list) {
-        result = STAR_API_ERROR_API_ERROR;
+        result = OGENGINE_ERROR_API_ERROR;
         err = "Inventory API returned success but no data";
     }
 
@@ -853,17 +853,17 @@ static void* inventory_thread_proc(void* param) {
     g_inv_in_progress = 0;
     g_inv_has_result = 1;
     if (g_inv_list)
-        star_api_free_item_list(g_inv_list);
+        ogengine_free_item_list(g_inv_list);
     g_inv_list = list;
     g_inv_result = result;
     str_copy(g_inv_error_msg, err ? err : "", sizeof(g_inv_error_msg));
     /* If add_item failed (e.g. not logged in / no avatar), surface that so user sees why pickups aren't saved */
     if (g_inv_add_item_error[0] != '\0') {
         str_copy(g_inv_error_msg, g_inv_add_item_error, sizeof(g_inv_error_msg));
-        if (g_inv_result == STAR_API_SUCCESS)
-            g_inv_result = STAR_API_ERROR_NOT_INITIALIZED; /* so UI shows error */
+        if (g_inv_result == OGENGINE_SUCCESS)
+            g_inv_result = OGENGINE_ERROR_NOT_INITIALIZED; /* so UI shows error */
     }
-    /* Pending add_item log for main-thread callback in star_sync_pump() */
+    /* Pending add_item log for main-thread callback in ogengine_sync_pump() */
     g_inv_add_item_log_count = logged_count;
     g_inv_add_item_log_success = (g_inv_add_item_error[0] == '\0') ? 1 : 0;
     str_copy(g_inv_add_item_log_error, g_inv_add_item_error, sizeof(g_inv_add_item_log_error));
@@ -872,7 +872,7 @@ static void* inventory_thread_proc(void* param) {
         for (k = 0; k < logged_count && k < ADD_ITEM_LOG_NAMES_MAX; k++)
             str_copy(g_inv_add_item_log_names[k], logged_names[k], ADD_ITEM_LOG_NAME_SIZE);
     }
-    /* Callback is invoked from main thread in star_sync_pump(), not from this worker. */
+    /* Callback is invoked from main thread in ogengine_sync_pump(), not from this worker. */
 #ifdef _WIN32
     LeaveCriticalSection(&g_inv_lock);
     return 0;
@@ -882,7 +882,7 @@ static void* inventory_thread_proc(void* param) {
 #endif
 }
 
-void star_sync_inventory_deliver_result(star_item_list_t* list, star_api_result_t result, const char* error_msg) {
+void ogengine_sync_inventory_deliver_result(ogengine_item_list_t* list, ogengine_result_t result, const char* error_msg) {
 #ifdef _WIN32
     EnterCriticalSection(&g_inv_lock);
 #else
@@ -891,7 +891,7 @@ void star_sync_inventory_deliver_result(star_item_list_t* list, star_api_result_
     g_inv_in_progress = 0;
     g_inv_has_result = 1;
     if (g_inv_list)
-        star_api_free_item_list(g_inv_list);
+        ogengine_free_item_list(g_inv_list);
     g_inv_list = list;
     g_inv_result = result;
     str_copy(g_inv_error_msg, error_msg ? error_msg : "", sizeof(g_inv_error_msg));
@@ -902,10 +902,10 @@ void star_sync_inventory_deliver_result(star_item_list_t* list, star_api_result_
 #endif
 }
 
-void star_sync_inventory_start(star_sync_local_item_t* local_items,
+void ogengine_sync_inventory_start(ogengine_sync_local_item_t* local_items,
     int local_count,
     const char* default_game_source,
-    star_sync_inventory_on_done_fn on_done,
+    ogengine_sync_inventory_on_done_fn on_done,
     void* on_done_user) {
 #ifdef _WIN32
     EnterCriticalSection(&g_inv_lock);
@@ -921,7 +921,7 @@ void star_sync_inventory_start(star_sync_local_item_t* local_items,
         return;
     }
     if (g_inv_list) {
-        star_api_free_item_list(g_inv_list);
+        ogengine_free_item_list(g_inv_list);
         g_inv_list = NULL;
     }
     g_inv_has_result = 0;
@@ -940,7 +940,7 @@ void star_sync_inventory_start(star_sync_local_item_t* local_items,
 #endif
 }
 
-int star_sync_inventory_poll(void) {
+int ogengine_sync_inventory_poll(void) {
 #ifdef _WIN32
     EnterCriticalSection(&g_inv_lock);
 #else
@@ -970,8 +970,8 @@ int star_sync_inventory_poll(void) {
     return -1;
 }
 
-int star_sync_inventory_get_result(star_item_list_t** list_out,
-    star_api_result_t* result_out,
+int ogengine_sync_inventory_get_result(ogengine_item_list_t** list_out,
+    ogengine_result_t* result_out,
     char* error_msg_buf, size_t error_msg_size) {
 #ifdef _WIN32
     EnterCriticalSection(&g_inv_lock);
@@ -999,14 +999,14 @@ int star_sync_inventory_get_result(star_item_list_t** list_out,
     return 1;
 }
 
-void star_sync_inventory_clear_result(void) {
+void ogengine_sync_inventory_clear_result(void) {
 #ifdef _WIN32
     EnterCriticalSection(&g_inv_lock);
 #else
     pthread_mutex_lock(&g_inv_lock);
 #endif
     if (g_inv_list) {
-        star_api_free_item_list(g_inv_list);
+        ogengine_free_item_list(g_inv_list);
         g_inv_list = NULL;
     }
     g_inv_has_result = 0;
@@ -1018,7 +1018,7 @@ void star_sync_inventory_clear_result(void) {
 #endif
 }
 
-int star_sync_inventory_in_progress(void) {
+int ogengine_sync_inventory_in_progress(void) {
 #ifdef _WIN32
     EnterCriticalSection(&g_inv_lock);
 #else
@@ -1033,20 +1033,20 @@ int star_sync_inventory_in_progress(void) {
     return in_progress;
 }
 
-star_api_result_t star_sync_single_item(const char* name,
+ogengine_result_t ogengine_sync_single_item(const char* name,
     const char* description,
     const char* game_source,
     const char* item_type,
     const char* nft_id) {
-    star_api_result_t res;
-    if (!name || !name[0]) return STAR_API_ERROR_INVALID_PARAM;
-    if (star_api_has_item(name))
-        return STAR_API_SUCCESS;
-    star_api_queue_add_item(name, description ? description : "", game_source ? game_source : "", item_type ? item_type : "KeyItem", nft_id, 1, 1);
-    res = star_api_flush_add_item_jobs();
+    ogengine_result_t res;
+    if (!name || !name[0]) return OGENGINE_ERROR_INVALID_PARAM;
+    if (ogengine_has_item(name))
+        return OGENGINE_SUCCESS;
+    ogengine_queue_add_item(name, description ? description : "", game_source ? game_source : "", item_type ? item_type : "KeyItem", nft_id, 1, 1);
+    res = ogengine_flush_add_item_jobs();
     if (g_add_item_log_cb) {
-        int success = (res == STAR_API_SUCCESS) ? 1 : 0;
-        const char* err = (res != STAR_API_SUCCESS) ? star_api_get_last_error() : "";
+        int success = (res == OGENGINE_SUCCESS) ? 1 : 0;
+        const char* err = (res != OGENGINE_SUCCESS) ? ogengine_get_last_error() : "";
         g_add_item_log_cb(name, success, err ? err : "", g_add_item_log_user);
     }
     return res;

@@ -1,4 +1,4 @@
-/*
+﻿/*
 ** p_spec.cpp
 **
 ** Implements special effects
@@ -38,7 +38,7 @@
 #include <stdlib.h>
 
 #include "a_keys.h"
-#include "uzdoom_star_integration.h"
+#include "uzdoom_ogengine_integration.h"
 #include "a_sharedglobal.h"
 #include "actorinlines.h"
 #include "d_event.h"
