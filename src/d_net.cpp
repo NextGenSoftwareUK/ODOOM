@@ -1,4 +1,4 @@
-/*
+﻿/*
 ** d_net.cpp
 **
 ** DOOM Network game communication and protocol, all OS independent parts.
@@ -30,7 +30,7 @@
 #include "d_eventbase.h"
 #include "d_main.h"
 #ifdef OASIS_STAR_API
-#include "uzdoom_star_integration.h"
+#include "uzdoom_ogengine_integration.h"
 #endif
 #include "d_net.h"
 #include "d_netinf.h"

@@ -1,4 +1,4 @@
-/*
+﻿/*
 ** sbar_mugshot.cpp
 **
 ** Draws customizable mugshots for the status bar.
@@ -29,7 +29,7 @@
 #include "actorinlines.h"
 #include "texturemanager.h"
 #ifdef OASIS_STAR_API
-#include "uzdoom_star_integration.h"
+#include "uzdoom_ogengine_integration.h"
 #endif
 
 #define ST_RAMPAGEDELAY 		(2*TICRATE)

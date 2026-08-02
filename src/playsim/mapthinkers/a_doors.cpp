@@ -1,4 +1,4 @@
-/*
+﻿/*
 ** a_doors.cpp
 **
 ** Door animation code (opening/closing)
@@ -26,7 +26,7 @@
 #include "r_state.h"
 #include "gi.h"
 #include "a_keys.h"
-#include "uzdoom_star_integration.h"
+#include "uzdoom_ogengine_integration.h"
 #include "serializer_doom.h"
 #include "d_player.h"
 #include "p_spec.h"

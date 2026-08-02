@@ -1,4 +1,4 @@
-/*
+﻿/*
 ** p_interaction.cpp
 **
 ** Handling interactions (i.e., collisions).
@@ -53,7 +53,7 @@
 #include "actorinlines.h"
 #include "d_main.h"
 #ifdef OASIS_STAR_API
-#include "uzdoom_star_integration.h"
+#include "uzdoom_ogengine_integration.h"
 #endif
 
 static FRandom pr_botrespawn ("BotRespawn");
@@ -107,7 +107,7 @@ void P_TouchSpecialThing (AActor *special, AActor *toucher)
 	special->CallTouch (toucher);
 #ifdef OASIS_STAR_API
 	/* If engine didn't consume (e.g. health/armor full), still take into STAR inventory and remove from floor. */
-	if (star_key == STAR_PICKUP_GENERIC_ITEM && !(special->ObjectFlags & OF_EuthanizeMe))
+	if (star_key == OGENGINE_PICKUP_GENERIC_ITEM && !(special->ObjectFlags & OF_EuthanizeMe))
 		special->Destroy();
 	if (star_key) UZDoom_STAR_PostTouchSpecial(star_key);
 #endif

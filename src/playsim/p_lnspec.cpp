@@ -1,4 +1,4 @@
-/*
+﻿/*
 ** p_lnspec.cpp
 **
 ** Handles line specials
@@ -24,7 +24,7 @@
 */
 
 #include "a_keys.h"
-#include "uzdoom_star_integration.h"
+#include "uzdoom_ogengine_integration.h"
 #include "a_sharedglobal.h"
 #include "d_event.h"
 #include "d_net.h"

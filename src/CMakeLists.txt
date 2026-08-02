@@ -1,5 +1,5 @@
-if(NOT OASIS_STAR_SYNC_IN_CLIENT)
-  set(STAR_SYNC_SRC star_sync.c)
+﻿if(NOT OASIS_STAR_SYNC_IN_CLIENT)
+  set(STAR_SYNC_SRC ogengine_sync.c)
 else()
   set(STAR_SYNC_SRC "")
 endif()
@@ -1277,7 +1277,7 @@ set( GAME_SOURCES
 )
 
 if(OASIS_STAR_API)
-	list(APPEND GAME_SOURCES uzdoom_star_integration.cpp
+	list(APPEND GAME_SOURCES uzdoom_ogengine_integration.cpp
     ${STAR_SYNC_SRC})
 endif()
 
@@ -1314,25 +1314,25 @@ if(BUILD_FLATPAK)
 	target_compile_definitions(zdoom PRIVATE IS_FLATPAK=1)
 endif()
 
-if(OASIS_STAR_API AND STAR_API_DIR)
+if(OASIS_STAR_API AND OGENGINE_DIR)
 	target_compile_definitions(zdoom PRIVATE OASIS_STAR_API=1)
-	target_include_directories(zdoom PRIVATE ${STAR_API_DIR})
+	target_include_directories(zdoom PRIVATE ${OGENGINE_DIR})
 	if(WIN32)
-		if(STAR_API_LIB_DIR)
-			target_link_directories(zdoom PRIVATE ${STAR_API_LIB_DIR})
+		if(OGENGINE_LIB_DIR)
+			target_link_directories(zdoom PRIVATE ${OGENGINE_LIB_DIR})
 		else()
-			target_link_directories(zdoom PRIVATE ${STAR_API_DIR}/build/Release ${STAR_API_DIR}/build/Debug)
+			target_link_directories(zdoom PRIVATE ${OGENGINE_DIR}/build/Release ${OGENGINE_DIR}/build/Debug)
 		endif()
 		target_link_libraries(zdoom star_api winhttp)
 	else()
-		if(STAR_API_LIB_DIR)
-			target_link_directories(zdoom PRIVATE ${STAR_API_LIB_DIR})
+		if(OGENGINE_LIB_DIR)
+			target_link_directories(zdoom PRIVATE ${OGENGINE_LIB_DIR})
 		else()
-			target_link_directories(zdoom PRIVATE ${STAR_API_DIR}/build)
+			target_link_directories(zdoom PRIVATE ${OGENGINE_DIR}/build)
 		endif()
 		target_link_libraries(zdoom star_api)
 	endif()
-	set_source_files_properties(uzdoom_star_integration.cpp
+	set_source_files_properties(uzdoom_ogengine_integration.cpp
     ${STAR_SYNC_SRC} PROPERTIES SKIP_PRECOMPILE_HEADERS TRUE)
 endif()
 
