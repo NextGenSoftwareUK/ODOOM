@@ -15,14 +15,14 @@
 #include "uzdoom_ogengine_integration.h"
 #include "ogengine.h"
 #ifndef OGENGINE_HAS_SEND_ITEM
-/* Forward declare send-item API when using an older star_api.h (e.g. in UZDoom tree). Link with updated star_api.lib. */
+/* Forward declare send-item API when using an older OGEngineClient.h (e.g. in UZDoom tree). Link with updated OGEngineClient.lib. */
 extern "C" {
 ogengine_result_t ogengine_send_item_to_avatar(const char* target_username_or_avatar_id, const char* item_name, int quantity, const char* item_id);
 ogengine_result_t ogengine_send_item_to_clan(const char* clan_name_or_target, const char* item_name, int quantity, const char* item_id);
 }
 #endif
 #ifndef OGENGINE_HAS_QUEUE_PICKUP_WITH_MINT
-/* Forward declare when star_api.h is old or from a tree that lacks it. Link with updated star_api.lib. */
+/* Forward declare when OGEngineClient.h is old or from a tree that lacks it. Link with updated OGEngineClient.lib. */
 extern "C" {
 void ogengine_queue_pickup_with_mint(const char* item_name, const char* description, const char* game_source, const char* item_type, int do_mint, const char* provider, const char* send_to_address_after_minting, int quantity);
 }
@@ -144,7 +144,7 @@ static bool g_star_client_ready = false;
 static bool g_star_user_beamed_out = false;
 /** Obsolete: was used to avoid calling ogengine_refresh_avatar_xp() twice; now we only call ogengine_refresh_avatar_profile() once on beam-in. */
 static bool g_star_refresh_xp_called_this_session = false;
-/* Verbose quest list chunk lines go to console only when true; star_api.log still gets full diagnostics from C#. Default on so tracker/quest issues are diagnosable without editing json. */
+/* Verbose quest list chunk lines go to console only when true; ogengine.log still gets full diagnostics from C#. Default on so tracker/quest issues are diagnosable without editing json. */
 static bool g_star_debug_logging = true;
 static bool g_star_logged_runtime_auth_failure = false;
 static bool g_star_logged_missing_auth_config = false;
@@ -859,7 +859,7 @@ static bool ODOOM_SaveJsonConfig(const char* json_path) {
 		} else if (g_odoom_saved_username[0]) {
 			static int s_odoom_jwt_missing_logged = 0;
 			if (s_odoom_jwt_missing_logged++ == 0)
-				StarLogInfo("ODOOM: Could not get JWT from STAR API (autologin may not work). Rebuild STARAPIClient and run BUILD_AND_DEPLOY_STAR_CLIENT.bat so star_api.dll exports session APIs.");
+				StarLogInfo("ODOOM: Could not get JWT from STAR API (autologin may not work). Rebuild STARAPIClient and run BUILD_AND_DEPLOY_STAR_CLIENT.bat so OGEngineClient.dll exports session APIs.");
 		}
 		char refresh_buf[2048] = {};
 		if (ogengine_get_current_refresh_token(refresh_buf, sizeof(refresh_buf)) > 0 && refresh_buf[0]) {
@@ -2455,7 +2455,7 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		}
 	}
 
-	/* Quest: start + set active objective (Not Started detail Enter). ogengine_start_quest_then_set_active_objective — deploy fresh star_api.* with ODOOM (see OASIS Omniverse/Docs/ODOOM_UZDoom_Build_Sync.md). */
+	/* Quest: start + set active objective (Not Started detail Enter). ogengine_start_quest_then_set_active_objective — deploy fresh OGEngineClient.* with ODOOM (see OASIS Omniverse/Docs/ODOOM_UZDoom_Build_Sync.md). */
 	{
 		FBaseCVar* chainVar = FindCVar("odoom_quest_start_then_track_do_it", nullptr);
 		if (g_star_initialized && chainVar && chainVar->GetRealType() == CVAR_Int && chainVar->GetGenericRep(CVAR_Int).Int != 0) {
