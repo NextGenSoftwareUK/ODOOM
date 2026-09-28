@@ -3,64 +3,74 @@ name: Release ODOOM
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: Stable semantic version (X.Y.Z)
-        required: true
-        type: string
-      release_notes:
-        description: Reviewed Markdown release notes
-        required: true
-        type: string
+      version: { description: 'Stable semantic version (X.Y.Z)', required: true, type: string }
+      release_notes: { description: 'Reviewed Markdown release notes', required: true, type: string }
+      publish: { description: 'Create the GitHub release after all builds pass', required: true, type: boolean, default: false }
 
-permissions:
-  contents: write
+permissions: { contents: write }
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate release identity
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
+      - env: { GH_TOKEN: '${{ github.token }}', VERSION: '${{ inputs.version }}' }
         run: |
-          set -euo pipefail
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           ! gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
 
-  build-windows:
+  build:
     needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ODOOM-Windows-x64
+            os: windows-latest
+            options: -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+            deps: choco install tree
+          - name: ODOOM-Linux-x64
+            os: ubuntu-latest
+            options: ''
+            deps: sudo apt-get update && sudo apt-get install -y libopenal-dev waylandpp-dev libsdl2-dev libwebp-dev libbz2-dev libomp-dev libvpx-dev tree
+          - name: ODOOM-macOS-x64
+            os: macos-14
+            options: -DHAVE_VULKAN=ON -DHAVE_GLES2=OFF -DDYN_OPENAL=OFF -DOPENAL_INCLUDE_DIR=/opt/homebrew/opt/openal-soft/include/AL -DOPENAL_LIBRARY=/opt/homebrew/opt/openal-soft/lib/libopenal.dylib
+            deps: brew install dylibbundler fluid-synth openal-soft vulkan-volk molten-vk libvpx sdl2 tree
     uses: ./.github/workflows/build_core.yml
     secrets: inherit
     with:
-      name: ODOOM-Windows-x64
-      os: windows-latest
+      name: ${{ matrix.name }}
+      os: ${{ matrix.os }}
       build_type: Release
-      deps_cmdline: choco install tree
-      extra_options: -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DOASIS_STAR_API=ON -DOGENGINE_DIR=${{ github.workspace }}/src -DOGENGINE_LIB_DIR=${{ github.workspace }}/src
+      deps_cmdline: ${{ matrix.deps }}
+      extra_options: ${{ matrix.options }}
+      oasis_integration: true
 
   publish:
-    needs: build-windows
+    if: inputs.publish
+    needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v7
-        with:
-          pattern: ODOOM-Windows-x64 Release
-          path: artifacts
-      - name: Verify integrated package
+      - uses: actions/download-artifact@v4
+        with: { pattern: 'ODOOM-* Release', path: artifacts }
+      - name: Verify integrated artifacts
         run: |
           set -euo pipefail
-          archive=$(find artifacts -type f -name '*.zip' -print -quit)
-          test -n "$archive"
-          unzip -l "$archive" | grep -q 'star_api.dll'
-          unzip -l "$archive" | grep -q 'uzdoom.exe'
+          windows=$(find artifacts -type f -name '*.zip' -path '*Windows*' -print -quit)
+          linux=$(find artifacts -type f -name '*.AppImage' -print -quit)
+          mac=$(find artifacts -type f -name '*.zip' -path '*macOS*' -print -quit)
+          test -n "$windows" && unzip -l "$windows" | grep -q 'ogengine.dll'
+          test -n "$linux" && test -s "$linux"
+          linux_dir=$(dirname "$linux")
+          test -s "$linux_dir/ogengine.so"
+          test -s "$linux_dir/libe_sqlite3.so"
+          tar -czf "ODOOM-Linux-x64-v${{ inputs.version }}.tar.gz" -C "$linux_dir" .
+          test -n "$mac" && unzip -l "$mac" | grep -q 'ogengine.dylib'
       - name: Create ODOOM release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-          RELEASE_NOTES: ${{ inputs.release_notes }}
+        env: { GH_TOKEN: '${{ github.token }}', VERSION: '${{ inputs.version }}', RELEASE_NOTES: '${{ inputs.release_notes }}' }
         run: |
           set -euo pipefail
           printf '%s\n' "$RELEASE_NOTES" > release-notes.md
-          mapfile -t assets < <(find artifacts -type f -name '*.zip')
+          mapfile -t assets < <({ find artifacts -type f -name '*.zip'; find . -maxdepth 1 -type f -name 'ODOOM-Linux-*.tar.gz'; } | sort)
+          test "${#assets[@]}" -eq 3
           gh release create "v$VERSION" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "ODOOM v$VERSION" --notes-file release-notes.md --verify-tag=false
