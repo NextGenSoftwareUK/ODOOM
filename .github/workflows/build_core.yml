@@ -16,12 +16,18 @@ on:
       build_type:
         required: true
         type: string
+      oasis_integration:
+        required: false
+        type: boolean
+        default: false
     secrets:
       MACOS_CERTIFICATE:
         required: false
       MACOS_CERTIFICATE_PASSWORD:
         required: false
       MACOS_CERTIFICATE_ID:
+        required: false
+      PRIVATE_SUBMODULE_PAT:
         required: false
 
 jobs:
@@ -31,6 +37,46 @@ jobs:
     steps:
     - name: Setup
       uses: actions/checkout@v4
+
+    - name: Checkout OASIS integration source
+      if: inputs.oasis_integration
+      uses: actions/checkout@v4
+      with:
+        repository: NextGenSoftwareUK/OASIS
+        ref: master
+        path: oasis
+        submodules: recursive
+        token: ${{ secrets.PRIVATE_SUBMODULE_PAT }}
+
+    - uses: actions/setup-dotnet@v4
+      if: inputs.oasis_integration
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Build platform OGEngineClient
+      if: inputs.oasis_integration
+      shell: bash
+      run: |
+        set -euo pipefail
+        . oasis/Docker/oasis-dependency-versions.env
+        git clone --no-checkout "$LIBRARIES_REPO" NextGenSoftware-Libraries
+        git -C NextGenSoftware-Libraries checkout --detach "$LIBRARIES_COMMIT"
+        git clone --no-checkout "$HOLOCHAIN_REPO" holochain-client-csharp
+        git -C holochain-client-csharp checkout --detach "$HOLOCHAIN_COMMIT"
+        case '${{ runner.os }}' in
+          Windows) rid=win-x64 ;;
+          Linux) rid=linux-x64 ;;
+          macOS) rid=osx-x64 ;;
+        esac
+        project="$GITHUB_WORKSPACE/oasis/OASIS Omniverse/OGEngineClient/OGEngineClient.csproj"
+        dotnet restore "$project" -r "$rid"
+        dotnet publish "$project" -c Release -r "$rid" --self-contained true -p:NoWarn=NU1605
+        native_dir="$GITHUB_WORKSPACE/oasis/OASIS Omniverse/OGEngineClient/bin/Release/net10.0/$rid/publish"
+        test -d "$native_dir"
+        [[ "$rid" == linux-* ]] && cp "$native_dir/ogengine.so" "$native_dir/libogengine.so"
+        [[ "$rid" == osx-* ]] && cp "$native_dir/ogengine.dylib" "$native_dir/libogengine.dylib"
+        echo "OGENGINE_DIR=$GITHUB_WORKSPACE/oasis/OASIS Omniverse/OGEngineClient" >> "$GITHUB_ENV"
+        echo "OGENGINE_LIB_DIR=$native_dir" >> "$GITHUB_ENV"
 
     - name: Setup
       id: ghd
@@ -54,6 +100,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ inputs.build_type }} \
           -DPK3_QUIET_ZIPDIR=ON \
           ${{ inputs.extra_options }} \
+          ${{ inputs.oasis_integration && '-DOASIS_STAR_API=ON -DOGENGINE_DIR="$OGENGINE_DIR" -DOGENGINE_LIB_DIR="$OGENGINE_LIB_DIR"' || '' }} \
           -G Ninja
 
     - name: Build
@@ -99,8 +146,8 @@ jobs:
             cp uzdoom.* *.pk3 package
 
             if grep -q '^OASIS_STAR_API:BOOL=ON$' CMakeCache.txt; then
-                test -f ../src/star_api.dll
-                cp ../src/star_api.dll package
+                test -f "$OGENGINE_LIB_DIR/ogengine.dll"
+                cp "$OGENGINE_LIB_DIR/ogengine.dll" package
             fi
 
             cd package
@@ -114,6 +161,10 @@ jobs:
             fi
             mv package/licenses.zip uzdoom.app/Contents/Resources
             cp *.pk3 uzdoom.app/Contents/MacOS
+            if [[ '${{ inputs.oasis_integration }}' == 'true' ]]; then
+              cp "$OGENGINE_LIB_DIR/ogengine.dylib" uzdoom.app/Contents/MacOS/
+              cp "$OGENGINE_LIB_DIR/libe_sqlite3.dylib" uzdoom.app/Contents/MacOS/
+            fi
 
             if dsymutil uzdoom.app/Contents/MacOS/uzdoom; then
               mv uzdoom.app/Contents/MacOS/uzdoom.dSYM uzdoom.app/Contents/Resources/
@@ -171,6 +222,11 @@ jobs:
             export GIT_DESCRIBE="${{ steps.ghd.outputs.describe }}"
             ./appimage-builder --skip-tests --recipe ../tools/AppImageBuilder.yml
             mv *.AppImage "package/${packagename}.AppImage"
+
+            if [[ '${{ inputs.oasis_integration }}' == 'true' ]]; then
+              cp "$OGENGINE_LIB_DIR/ogengine.so" package/
+              cp "$OGENGINE_LIB_DIR/libe_sqlite3.so" package/
+            fi
 
             rm package/licenses.zip
 
