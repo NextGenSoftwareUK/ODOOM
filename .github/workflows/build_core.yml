@@ -98,6 +98,11 @@ jobs:
 
             cp uzdoom.* *.pk3 package
 
+            if grep -q '^OASIS_STAR_API:BOOL=ON$' CMakeCache.txt; then
+                test -f ../src/star_api.dll
+                cp ../src/star_api.dll package
+            fi
+
             cd package
             7z a -sdel -r "${packagename}.zip" *
             cd ..
