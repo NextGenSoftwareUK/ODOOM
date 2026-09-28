@@ -70,7 +70,7 @@ jobs:
         esac
         project="$GITHUB_WORKSPACE/oasis/OASIS Omniverse/OGEngineClient/OGEngineClient.csproj"
         dotnet restore "$project" -r "$rid"
-        dotnet publish "$project" -c Release -r "$rid" --self-contained true -p:NoWarn=NU1605
+        dotnet publish "$project" -c Release -r "$rid" --self-contained true -m:1 -p:NoWarn=NU1605
         native_dir="$GITHUB_WORKSPACE/oasis/OASIS Omniverse/OGEngineClient/bin/Release/net10.0/$rid/publish"
         test -d "$native_dir"
         [[ "$rid" == linux-* ]] && cp "$native_dir/ogengine.so" "$native_dir/libogengine.so"
