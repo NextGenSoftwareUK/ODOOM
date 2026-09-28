@@ -32,7 +32,7 @@ jobs:
             os: ubuntu-latest
             options: ''
             deps: sudo apt-get update && sudo apt-get install -y libopenal-dev waylandpp-dev libsdl2-dev libwebp-dev libbz2-dev libomp-dev libvpx-dev tree
-          - name: ODOOM-macOS-x64
+          - name: ODOOM-macOS-arm64
             os: macos-14
             options: -DHAVE_VULKAN=ON -DHAVE_GLES2=OFF -DDYN_OPENAL=OFF -DOPENAL_INCLUDE_DIR=/opt/homebrew/opt/openal-soft/include/AL -DOPENAL_LIBRARY=/opt/homebrew/opt/openal-soft/lib/libopenal.dylib
             deps: brew install dylibbundler fluid-synth openal-soft vulkan-volk molten-vk libvpx sdl2 tree
