@@ -10,8 +10,8 @@
  * - Init at startup, cleanup at shutdown
  */
 
-#ifndef UZDOOM_STAR_INTEGRATION_H
-#define UZDOOM_STAR_INTEGRATION_H
+#ifndef UZDOOM_OGENGINE_INTEGRATION_H
+#define UZDOOM_OGENGINE_INTEGRATION_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -91,9 +91,10 @@ void ODOOM_InventorySetKeyState(int up, int down, int left, int right, int use, 
 
 /** Whether to show OASIS anorak face in status bar. Only set by star face on/off and beam-in/out. */
 int UZDoom_STAR_GetShowAnorakFace(void);
+void UZDoom_STAR_CheckIncomingTeleport(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* UZDOOM_STAR_INTEGRATION_H */
+#endif /* UZDOOM_OGENGINE_INTEGRATION_H */

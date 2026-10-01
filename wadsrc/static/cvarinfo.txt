@@ -116,3 +116,5 @@ server string odoom_quest_scroll_to_id = "";
 server int odoom_quest_pending_select_filtered_index = -1;
 
 server int odoom_quest_start_then_track_do_it = 0;
+
+server int odoom_star_avatar_karma = 0;

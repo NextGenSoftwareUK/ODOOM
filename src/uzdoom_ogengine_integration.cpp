@@ -1,7 +1,7 @@
-﻿/**
+/**
  * ODOOM - OASIS STAR API Integration Implementation
  *
- * Build this file as part of ODOOM (UZDoom) with STAR API from STARAPIClient.
+ * Build this file as part of ODOOM (UZDoom) with STAR API from OGEngineClient.
  * Keycard pickups are reported to STAR; door/lock checks can use cross-game inventory.
  * In-game console: "star" command for testing (star version, star inventory, star add, etc.).
  *
@@ -14,24 +14,6 @@
 
 #include "uzdoom_ogengine_integration.h"
 #include "ogengine.h"
-#ifndef OGENGINE_HAS_SEND_ITEM
-/* Forward declare send-item API when using an older OGEngineClient.h (e.g. in UZDoom tree). Link with updated OGEngineClient.lib. */
-extern "C" {
-ogengine_result_t ogengine_send_item_to_avatar(const char* target_username_or_avatar_id, const char* item_name, int quantity, const char* item_id);
-ogengine_result_t ogengine_send_item_to_clan(const char* clan_name_or_target, const char* item_name, int quantity, const char* item_id);
-}
-#endif
-#ifndef OGENGINE_HAS_QUEUE_PICKUP_WITH_MINT
-/* Forward declare when OGEngineClient.h is old or from a tree that lacks it. Link with updated OGEngineClient.lib. */
-extern "C" {
-void ogengine_queue_pickup_with_mint(const char* item_name, const char* description, const char* game_source, const char* item_type, int do_mint, const char* provider, const char* send_to_address_after_minting, int quantity);
-}
-#endif
-#ifndef OGENGINE_HAS_CONSUME_LAST_MINT
-extern "C" {
-int ogengine_consume_last_mint_result(char* item_name_out, size_t item_name_size, char* nft_id_out, size_t nft_id_size, char* hash_out, size_t hash_size);
-}
-#endif
 #include "ogengine_sync.h"
 /* C linkage for deliver_result (from star_sync; ensure visible when header is from alternate path). */
 extern "C" void ogengine_sync_inventory_deliver_result(ogengine_item_list_t* list, ogengine_result_t result, const char* error_msg);
@@ -131,11 +113,20 @@ extern "C" void ogengine_sync_inventory_deliver_result(ogengine_item_list_t* lis
 /* Forward declaration so code before the definition (e.g. ODOOM_SaveJsonConfig) can call StarLogInfo. */
 static void StarLogInfo(const char* fmt, ...);
 
-/* OGLib: runtime session forwarders, config, beamin, cross-game utilities. */
-#define OGLIB_SESSION_IMPL
-#include "../OGLib/oglib.h"
+/* Mandatory native exports are linked from the matching OGEngineClient import library. */
+#include "oglib.h"
+#include "oglib_edge.h"
+#include <atomic>
+
+static void oasis_open_url(const char* url);
 
 static ogengine_config_t g_star_config;
+static oglib_edge_settings_t g_edge_settings = OGLIB_EDGE_SETTINGS_DEFAULT;
+static ogengine_edge_status_t g_edge_status = {};
+static bool g_star_restore_pending = false;
+static std::atomic<int> g_star_profile_error_pending{0};
+CVAR(String, odoom_star_edge_status, "", 0)
+static void ODOOM_SetToastMessage(const char* msg);
 /** 0 = merge quest progress into local STAR client cache (no GET). 1 = full GET all quests after each progress. From oasisstar.json quest_progress_refresh. */
 static int g_odoom_quest_progress_cache_refresh = 0;
 static bool g_star_initialized = false;
@@ -144,14 +135,14 @@ static bool g_star_client_ready = false;
 static bool g_star_user_beamed_out = false;
 /** Obsolete: was used to avoid calling ogengine_refresh_avatar_xp() twice; now we only call ogengine_refresh_avatar_profile() once on beam-in. */
 static bool g_star_refresh_xp_called_this_session = false;
-/* Verbose quest list chunk lines go to console only when true; ogengine.log still gets full diagnostics from C#. Default on so tracker/quest issues are diagnosable without editing json. */
+/* Verbose quest list chunk lines go to console only when true; star_api.log still gets full diagnostics from C#. Default on so tracker/quest issues are diagnosable without editing json. */
 static bool g_star_debug_logging = true;
 static bool g_star_logged_runtime_auth_failure = false;
 static bool g_star_logged_missing_auth_config = false;
 /** Set true when restore-session path runs; frame pump sets tracker to "Loading..." once CVars are safe. */
 static bool g_odoom_pending_loading_tracker = false;
 /** Set true when STAR API invokes operation callback with ProfileLoaded success; frame pump then fills tracker from cache (audit: single source of truth for "profile loaded"). */
-static bool g_odoom_profile_loaded_pending = false;
+static std::atomic<bool> g_odoom_profile_loaded_pending{false};
 /** Set true when operation_callback(OGENGINE_OP_GET_INVENTORY) fires; frame pump then applies cache to CVars. */
 static bool g_odoom_inventory_refresh_pending = false;
 /** Set true when an objective was just completed (keycard/console); frame pump refreshes tracker on next frame. */
@@ -581,11 +572,17 @@ static bool ODOOM_TryApplyCrossGameBeamInTransfers(void) {
 static bool ODOOM_LoadJsonConfig(const char* json_path) {
 	FILE* f = fopen(json_path, "r");
 	if (!f) return false;
-	char json[4096] = {0};
+	char json[32768] = {0};
 	size_t len = fread(json, 1, sizeof(json) - 1, f);
+	if (len == sizeof(json) - 1 && fgetc(f) != EOF) {
+		fclose(f);
+		StarLogInfo("ODOOM: oasisstar.json exceeds the supported 32 KiB configuration size.");
+		return false;
+	}
 	fclose(f);
 	if (len == 0) return false;
 	json[len] = '\0';
+	oglib_edge_load_json(&g_edge_settings, json);
 	bool loaded = false;
 	char value[256];
 	if (ODOOM_ExtractJsonValue(json, "ogengine_url", value, (int)sizeof(value))) {
@@ -760,6 +757,7 @@ static bool ODOOM_SaveJsonConfig(const char* json_path) {
 	const char* star_url = (const char*)odoom_ogengine_url;
 	const char* oasis_url = (const char*)odoom_oasis_api_url;
 	fprintf(f, "{\n");
+	oglib_edge_save_json(f, &g_edge_settings);
 	fprintf(f, "  \"star_transport\": \"%s\",\n", (const char*)odoom_star_transport && ((const char*)odoom_star_transport)[0] ? (const char*)odoom_star_transport : "remote");
 	fprintf(f, "  \"ogengine_url\": \"%s\",\n", star_url ? star_url : "");
 	fprintf(f, "  \"oasis_api_url\": \"%s\",\n", oasis_url ? oasis_url : "");
@@ -859,7 +857,7 @@ static bool ODOOM_SaveJsonConfig(const char* json_path) {
 		} else if (g_odoom_saved_username[0]) {
 			static int s_odoom_jwt_missing_logged = 0;
 			if (s_odoom_jwt_missing_logged++ == 0)
-				StarLogInfo("ODOOM: Could not get JWT from STAR API (autologin may not work). Rebuild STARAPIClient and run BUILD_AND_DEPLOY_STAR_CLIENT.bat so OGEngineClient.dll exports session APIs.");
+				StarLogInfo("ODOOM: Could not get JWT from STAR API (autologin may not work). Rebuild OGEngineClient and run BUILD_AND_DEPLOY_STAR_CLIENT.bat so ogengine.dll exports session APIs.");
 		}
 		char refresh_buf[2048] = {};
 		if (ogengine_get_current_refresh_token(refresh_buf, sizeof(refresh_buf)) > 0 && refresh_buf[0]) {
@@ -1142,13 +1140,13 @@ static bool ODOOM_ItemMatchesTab(const char* item_type, const char* name, int ta
 		return contains(item_type, "Powerup") || ODOOM_ItemNameIsCanonicalPhase1Powerup(name);
 	if (tab == ODOOM_TAB_WEAPONS) {
 		/* Holon ItemType from API may be *Weapon* for monster NFTs; monster kills use "Monster defeated in ..." description (normalized in STARAPI GetNativeItemType). */
-		if (contains(item_type, "Monster") || (name && (std::strstr(name, "[NFT]") != nullptr || std::strstr(name, "[BOSSNFT]") != nullptr)))
+		if (contains(item_type, "Monster"))
 			return false;
 		return contains(item_type, "Weapon");
 	}
 	if (tab == ODOOM_TAB_AMMO) return contains(item_type, "Ammo");
 	if (tab == ODOOM_TAB_ARMOR) return contains(item_type, "Armor");
-	if (tab == ODOOM_TAB_MONSTERS) return contains(item_type, "Monster") || (name && (std::strstr(name, "[NFT]") != nullptr || std::strstr(name, "[BOSSNFT]") != nullptr));
+	if (tab == ODOOM_TAB_MONSTERS) return contains(item_type, "Monster");
 	if (tab == ODOOM_TAB_ITEMS) {
 		return !containsKey(item_type) && !containsKey(name)
 			&& !contains(item_type, "Powerup") && !contains(item_type, "Weapon")
@@ -1229,8 +1227,12 @@ static void ODOOM_PushInventoryToCVars(const ogengine_item_list_t* list) {
 		if ((filteredIndex - (size_t)scrollOffset) >= ODOOM_INVENTORY_WINDOW_ITEMS) break;
 
 		char name[320], desc[256], type[64], game[64];
+		bool isGeoNft = (it->geo_nft_id[0] != '\0');
 		bool isNft = (it->nft_id[0] != '\0');
-		if (isNft) {
+		if (isGeoNft) {
+			snprintf(name, sizeof(name), "[GEONFT] %s", it->name);
+			copySafe(name, name, 320);
+		} else if (isNft) {
 			snprintf(name, sizeof(name), "[NFT] %s", it->name);
 			copySafe(name, name, 320);
 		} else {
@@ -1269,10 +1271,12 @@ static void ODOOM_UpdateStarKeyHudCVars(const ogengine_item_list_t* list) {
 	if (!g_star_initialized || !list) {
 		FBaseCVar* g = FindCVar("odoom_star_has_gold_key", nullptr);
 		FBaseCVar* s = FindCVar("odoom_star_has_silver_key", nullptr);
-		FBaseCVar* xpVar = FindCVar("odoom_star_avatar_xp", nullptr);
-		if (g && g->GetRealType() == CVAR_Int) { UCVarValue u; u.Int = 0; g->SetGenericRep(u, CVAR_Int); }
-		if (s && s->GetRealType() == CVAR_Int) { UCVarValue u; u.Int = 0; s->SetGenericRep(u, CVAR_Int); }
-		if (xpVar && xpVar->GetRealType() == CVAR_Int) { UCVarValue u; u.Int = 0; xpVar->SetGenericRep(u, CVAR_Int); }
+		FBaseCVar* xpVar    = FindCVar("odoom_star_avatar_xp", nullptr);
+		FBaseCVar* karmaVar = FindCVar("odoom_star_avatar_karma", nullptr);
+		if (g && g->GetRealType() == CVAR_Int)       { UCVarValue u; u.Int = 0; g->SetGenericRep(u, CVAR_Int); }
+		if (s && s->GetRealType() == CVAR_Int)       { UCVarValue u; u.Int = 0; s->SetGenericRep(u, CVAR_Int); }
+		if (xpVar && xpVar->GetRealType() == CVAR_Int)       { UCVarValue u; u.Int = 0; xpVar->SetGenericRep(u, CVAR_Int); }
+		if (karmaVar && karmaVar->GetRealType() == CVAR_Int)  { UCVarValue u; u.Int = 0; karmaVar->SetGenericRep(u, CVAR_Int); }
 		return;
 	}
 	int hasGold = 0, hasSilver = 0;
@@ -1298,6 +1302,12 @@ static void ODOOM_UpdateStarKeyHudCVars(const ogengine_item_list_t* list) {
 	{
 		FBaseCVar* xpVar = FindCVar("odoom_star_avatar_xp", nullptr);
 		if (xpVar && xpVar->GetRealType() == CVAR_Int) { UCVarValue u; u.Int = xp; xpVar->SetGenericRep(u, CVAR_Int); }
+	}
+	long karma = 0;
+	if (ogengine_get_avatar_karma(&karma))
+	{
+		FBaseCVar* karmaVar = FindCVar("odoom_star_avatar_karma", nullptr);
+		if (karmaVar && karmaVar->GetRealType() == CVAR_Int) { UCVarValue u; u.Int = (int)karma; karmaVar->SetGenericRep(u, CVAR_Int); }
 	}
 }
 
@@ -1497,7 +1507,7 @@ static void ODOOM_AppendQuestPctFromQLine(const char* line, size_t lineLen, std:
 /**
  * Parse O-line for odoom_quest_tracker_objective fallback from quest list payload.
  * Extended rows (6+ tab-separated fields after O): id, name, desc, ProgressSummary, …, done — use ProgressSummary (field index 3) when last field is 0.
- * Compact rows (current STARAPIClient): id, title, done — use title when done is 0.
+ * Compact rows (current OGEngineClient): id, title, done — use title when done is 0.
  */
 static void ODOOM_ParseOlineTrackerProgress(const char* line, size_t lineLen, std::string& outProgress) {
 	if (lineLen < 4 || line[0] != 'O' || line[1] != '\t')
@@ -1972,7 +1982,7 @@ static void ODOOM_StarApiOperationCallback(ogengine_result_t result, int operati
 	if (operation_type == OGENGINE_OP_PROFILE_LOADED && result == OGENGINE_SUCCESS)
 		g_odoom_profile_loaded_pending = true;
 	if (operation_type == OGENGINE_OP_PROFILE_LOADED && result != OGENGINE_SUCCESS)
-		Printf(PRINT_NONOTIFY, "Session restore failed (session may have expired). Use 'star beamin' to log in again.\n");
+		g_star_profile_error_pending = (int)result;
 	if (operation_type == OGENGINE_OP_GET_INVENTORY) {
 		ogengine_item_list_t* list = nullptr;
 		if (result == OGENGINE_SUCCESS)
@@ -2370,28 +2380,119 @@ void ODOOM_InventoryInputCaptureFrame(void)
 	}
 
 	ogengine_sync_pump();
+	{
+		char message[512];
+		int changed = oglib_edge_finish_change(&g_edge_settings, message, sizeof(message));
+		if (changed != 0) {
+			if (changed == 1) ODOOM_SaveStarConfigToFiles();
+			ODOOM_SetToastMessage(message);
+			Printf(PRINT_NONOTIFY, "[OASIS] %s\n", message);
+		}
+	}
+	if (g_star_profile_error_pending.exchange(0)) {
+		g_star_restore_pending = false;
+		g_star_initialized = false;
+		g_star_init_failed_this_session = true;
+		odoom_star_username = "";
+		Printf(PRINT_NONOTIFY, "Beam-in failed: %s\n", ogengine_get_last_error());
+	}
+	if (g_star_restore_pending && g_odoom_profile_loaded_pending) {
+		g_star_restore_pending = false;
+		g_star_initialized = true;
+		g_star_just_beamed_in = true;
+		char name[256] = {};
+		ogengine_get_current_username(name, sizeof(name));
+		g_star_effective_username = name;
+		odoom_star_username = name;
+		ODOOM_SaveStarConfigToFiles();
+	}
+	if (g_star_client_ready) {
+		ogengine_get_edge_status(&g_edge_status);
+		char edge_status[96];
+		oglib_edge_status_text(&g_edge_status, ogengine_get_edge_capabilities(), edge_status, sizeof(edge_status));
+		odoom_star_edge_status = edge_status;
+	}
+	if (g_star_initialized && !g_star_async_auth_pending && !g_star_restore_pending) {
+		char notification[256];
+		if (ogengine_poll_edge_notification(notification, sizeof(notification)) == 1) {
+			ODOOM_SetToastMessage(notification);
+			Printf(PRINT_NONOTIFY, "[OASIS] %s\n", notification);
+		}
+	}
 
-	/* If async auth was started but callback never fired (e.g. hang/timeout), show error once after ~30 s. */
-	if (g_star_async_auth_pending) {
-		g_star_async_auth_pending_frames++;
-		if (g_star_async_auth_pending_frames > 35 * 30) {  /* 30 s at 35 fps */
-			g_star_async_auth_pending = false;
-			g_star_init_failed_this_session = true;  /* Same as auth callback failure: no silent retry storm. */
-			odoom_star_username = "";
-			if (!g_star_beamin_timeout_was_shown) {
-				g_star_beamin_timeout_was_shown = true;
-				static char s_timeout_msg[128];
-				std::snprintf(s_timeout_msg, sizeof(s_timeout_msg), "Beam-in failed: timeout (no response from server).");
-				Printf(PRINT_NONOTIFY, "%s\n", s_timeout_msg);
-				FBaseCVar* toastMsgCv = FindCVar("odoom_star_toast_message", nullptr);
-				FBaseCVar* toastFramesCv = FindCVar("odoom_star_toast_frames", nullptr);
-				if (toastMsgCv && toastMsgCv->GetRealType() == CVAR_String && toastFramesCv && toastFramesCv->GetRealType() == CVAR_Int) {
-					UCVarValue vMsg; vMsg.String = s_timeout_msg;
-					toastMsgCv->SetGenericRep(vMsg, CVAR_String);
-					UCVarValue vFrames; vFrames.Int = 175;
-					toastFramesCv->SetGenericRep(vFrames, CVAR_Int);
+	/* --- cross-game spawn poll --- */
+	{
+		char entity_id[128];
+		float sx, sy, sz;
+		if (ogengine_poll_spawn_event(entity_id, sizeof(entity_id), &sx, &sy, &sz))
+		{
+			oglib_log(OGLIB_LOG_INFO, "OASIS SpawnEvent: %s at %.0f/%.0f/%.0f", entity_id, sx, sy, sz);
+			FString summonCmd;
+			summonCmd.Format("summon %s", entity_id);
+			C_DoCommand(summonCmd.GetChars());
+			ogengine_confirm_spawn(entity_id);
+		}
+	}
+
+	/* --- cross-game event poll --- */
+	{
+		char evt_json[4096];
+		while (ogengine_poll_cross_game_event(evt_json, sizeof(evt_json)))
+		{
+			char evt_type[64] = "";
+			ODOOM_ExtractJsonValue(evt_json, "EventType", evt_type, sizeof(evt_type));
+			if (strcmp(evt_type, "ShowNarration") == 0) {
+				char narration[512] = "";
+				ODOOM_ExtractJsonValue(evt_json, "NarrationText", narration, sizeof(narration));
+				if (narration[0]) {
+					FBaseCVar* toastMsgCv    = FindCVar("odoom_star_toast_message", nullptr);
+					FBaseCVar* toastFramesCv = FindCVar("odoom_star_toast_frames",  nullptr);
+					if (toastMsgCv && toastMsgCv->GetRealType() == CVAR_String &&
+					    toastFramesCv && toastFramesCv->GetRealType() == CVAR_Int) {
+						UCVarValue vMsg;    vMsg.String = narration;
+						UCVarValue vFrames; vFrames.Int = 210; /* ~6 s at 35 fps */
+						toastMsgCv->SetGenericRep(vMsg, CVAR_String);
+						toastFramesCv->SetGenericRep(vFrames, CVAR_Int);
+					}
 				}
+			} else if (strcmp(evt_type, "PlayAudio") == 0) {
+				char audio_url[256] = "";
+				char audio_title[128] = "";
+				ODOOM_ExtractJsonValue(evt_json, "AudioUrl",   audio_url,   sizeof(audio_url));
+				ODOOM_ExtractJsonValue(evt_json, "AudioTitle", audio_title, sizeof(audio_title));
+				oasis_open_url(audio_url);
+				if (audio_title[0]) ODOOM_SetToastMessage(audio_title);
+				oglib_log(OGLIB_LOG_INFO, "OASIS PlayAudio: %s -> %s", audio_title, audio_url);
+			} else if (strcmp(evt_type, "PlayVideo") == 0) {
+				char video_url[256] = "";
+				char video_title[128] = "";
+				ODOOM_ExtractJsonValue(evt_json, "VideoUrl",   video_url,   sizeof(video_url));
+				ODOOM_ExtractJsonValue(evt_json, "VideoTitle", video_title, sizeof(video_title));
+				oasis_open_url(video_url);
+				if (video_title[0]) ODOOM_SetToastMessage(video_title);
+				oglib_log(OGLIB_LOG_INFO, "OASIS PlayVideo: %s -> %s", video_title, video_url);
+			} else if (strcmp(evt_type, "OpenWebsite") == 0) {
+				char website_url[256] = "";
+				ODOOM_ExtractJsonValue(evt_json, "WebsiteUrl", website_url, sizeof(website_url));
+				oasis_open_url(website_url);
+				oglib_log(OGLIB_LOG_INFO, "OASIS OpenWebsite: %s", website_url);
+			} else if (strcmp(evt_type, "UnlockPortal") == 0) {
+				char portal_id[64] = "";
+				ODOOM_ExtractJsonValue(evt_json, "PortalId", portal_id, sizeof(portal_id));
+				ogengine_notify_portal_unlock(portal_id);
+				ODOOM_SetToastMessage("Portal unlocked!");
+				oglib_log(OGLIB_LOG_INFO, "OASIS UnlockPortal: %s", portal_id);
 			}
+		}
+	}
+
+	/* --- inventory grant poll --- */
+	{
+		char item_guid[64];
+		while (ogengine_poll_inventory_grant(item_guid, sizeof(item_guid)))
+		{
+			oglib_log(OGLIB_LOG_INFO, "OASIS InventoryGrant: %s — inventory refresh triggered", item_guid);
+			ogengine_get_inventory(NULL);
 		}
 	}
 
@@ -2455,7 +2556,7 @@ void ODOOM_InventoryInputCaptureFrame(void)
 		}
 	}
 
-	/* Quest: start + set active objective (Not Started detail Enter). ogengine_start_quest_then_set_active_objective — deploy fresh OGEngineClient.* with ODOOM (see OASIS Omniverse/Docs/ODOOM_UZDoom_Build_Sync.md). */
+	/* Quest: start + set active objective (Not Started detail Enter). ogengine_start_quest_then_set_active_objective — deploy fresh star_api.* with ODOOM (see OASIS Omniverse/Docs/ODOOM_UZDoom_Build_Sync.md). */
 	{
 		FBaseCVar* chainVar = FindCVar("odoom_quest_start_then_track_do_it", nullptr);
 		if (g_star_initialized && chainVar && chainVar->GetRealType() == CVAR_Int && chainVar->GetGenericRep(CVAR_Int).Int != 0) {
@@ -3473,6 +3574,7 @@ static bool StarTryInitializeAndAuthenticate(bool verbose) {
 	const bool logVerbose = verbose;
 	if (g_star_initialized)
 		return true;
+	if (g_star_restore_pending) return false;
 	/* After explicit beam out, do not auto re-auth on door/touch; only "star beamin" or startup can auth again. */
 	if (!logVerbose && g_star_user_beamed_out) {
 		return false;
@@ -3537,7 +3639,8 @@ static bool StarTryInitializeAndAuthenticate(bool verbose) {
 
 	if (!g_star_client_ready) {
 		if (logVerbose) StarLogInfo("Calling ogengine_init...");
-		ogengine_result_t init_result = ogengine_init(&g_star_config);
+		ogengine_result_t init_result = oglib_edge_configure(&g_edge_settings);
+		if (init_result == OGENGINE_SUCCESS) init_result = ogengine_init(&g_star_config);
 		if (init_result != OGENGINE_SUCCESS) {
 			g_star_init_failed_this_session = true;
 			if (logVerbose) StarLogError("ogengine_init failed: %s", ogengine_get_last_error());
@@ -3560,7 +3663,7 @@ static bool StarTryInitializeAndAuthenticate(bool verbose) {
 			static bool s_logged_oasis_missing = false;
 			if (!s_logged_oasis_missing) {
 				s_logged_oasis_missing = true;
-				StarLogInfo("STAR: oasis_api_url not set; token refresh may fail. Add \"oasis_api_url\": \"http://localhost:5555\" to oasisstar.json for auto-renew.");
+				StarLogInfo("STAR: oasis_api_url not set; token refresh may fail. Add \"oasis_api_url\": \"https://dev.api.web4.oasisomniverse.one\" to oasisstar.json for auto-renew.");
 			}
 		}
 	}
@@ -3586,24 +3689,17 @@ static bool StarTryInitializeAndAuthenticate(bool verbose) {
 		return false; /* Result will be applied in ODOOM_OnAuthDone or timeout. */
 	}
 
-	// API key + avatar mode: accept credentials and start inventory in background (no blocking call).
+	// API-key sessions go through the same validated profile/Edge composition as saved sessions.
 	if (HasValue(g_star_config.api_key) && HasValue(g_star_config.avatar_id)) {
-		g_star_initialized = true;
-		ODOOM_ResetCrossGameBeamTransferState();
-		g_star_init_failed_this_session = false;
-		g_star_logged_runtime_auth_failure = false;
-		g_star_logged_missing_auth_config = false;
-		if (!g_star_effective_username.empty())
-			odoom_star_username = g_star_effective_username.c_str();
-		else if (!g_star_effective_avatar_id.empty())
-			odoom_star_username = g_star_effective_avatar_id.c_str();
-		else
-			odoom_star_username = "Avatar";
-		StarApplyBeamFacePreference();
-		if (logVerbose) StarLogInfo("Beam-in (API key/avatar).");
-		return true;
+		if (ogengine_restore_session() != OGENGINE_SUCCESS) {
+			g_star_init_failed_this_session = true;
+			StarLogError("Beam-in failed: %s", ogengine_get_last_error());
+			return false;
+		}
+		g_star_restore_pending = true;
+		odoom_star_username = "Beaming in...";
+		return false;
 	}
-
 	// Restore session from oasisstar.json so user stays logged in between sessions.
 	if (g_odoom_saved_jwt[0]) {
 		if (logVerbose) StarLogInfo("\n********** OASIS SESSION RESTORE START **********");
@@ -3613,19 +3709,17 @@ static bool StarTryInitializeAndAuthenticate(bool verbose) {
 				ogengine_set_refresh_token(g_odoom_saved_refresh_token);
 			result = ogengine_restore_session();
 			if (result == OGENGINE_SUCCESS) {
-				g_star_initialized = true;
+				g_star_restore_pending = true;
 				ODOOM_ResetCrossGameBeamTransferState();
 				g_star_init_failed_this_session = false;
 				g_star_logged_runtime_auth_failure = false;
 				g_star_logged_missing_auth_config = false;
 				if (g_odoom_saved_username[0])
 					g_star_effective_username = g_odoom_saved_username;
-				odoom_star_username = g_star_effective_username.empty() ? "Avatar" : g_star_effective_username.c_str();
-				StarApplyBeamFacePreference();
-				ogengine_refresh_avatar_profile();
+				odoom_star_username = "Beaming in...";
 				g_odoom_pending_loading_tracker = true;  /* Frame pump will set "Loading..." when CVars are ready */
 				if (logVerbose) StarLogInfo("Restoring saved session for %s.", g_odoom_saved_username[0] ? g_odoom_saved_username : "(avatar)");
-				return true;
+				return false;
 			}
 		}
 		if (logVerbose) StarLogError("Saved session invalid: %s", ogengine_get_last_error());
@@ -3929,7 +4023,7 @@ void UZDoom_STAR_PostTouchSpecial(int keynum) {
 
 	/*
 	 * Quest progress for pickups: routed through ogengine_queue_add_item / queue_pickup_with_mint / queue_quest_progress_from_pickup,
-	 * which all enqueue EnqueueQuestProgressFromGame in STARAPIClient (active quest on server). oasisstar.json / odoom_star_* CVars affect
+	 * which all enqueue EnqueueQuestProgressFromGame in OGEngineClient (active quest on server). oasisstar.json / odoom_star_* CVars affect
 	 * inventory/mint and whether PostTouch returns early (e.g. at max health with allow_if_max=0); they do not load objectives locally.
 	 * When the engine never applies a pickup, we do not send health/armor collected deltas (would mis-state progress).
 	 */
@@ -4252,6 +4346,18 @@ static bool StarInitialized(void) {
 	return g_star_initialized;
 }
 
+static void oasis_open_url(const char *url)
+{
+	if (!url || !url[0]) return;
+#ifdef _WIN32
+	{ char _cmd[512]; snprintf(_cmd, sizeof(_cmd), "start \"\" \"%s\"", url); (void)system(_cmd); }
+#elif defined(__APPLE__)
+	{ char _cmd[512]; snprintf(_cmd, sizeof(_cmd), "open \"%s\"", url); (void)system(_cmd); }
+#else
+	{ char _cmd[512]; snprintf(_cmd, sizeof(_cmd), "xdg-open \"%s\" &", url); (void)system(_cmd); }
+#endif
+}
+
 /** Set toast message for ZScript (same as inventory popup "at max" feedback). */
 static void ODOOM_SetToastMessage(const char* msg) {
 	if (!msg || !msg[0]) return;
@@ -4386,6 +4492,12 @@ CCMD(star)
 		return;
 	}
 	const char* sub = argv[1];
+	if (strcmp(sub, "offline") == 0) {
+		char message[512];
+		oglib_edge_command(argv.argc() > 2 ? argv[2] : "status", message, sizeof(message));
+		Printf("%s\n", message);
+		return;
+	}
 	if (strcmp(sub, "pickup") == 0) {
 		Printf("\n");
 		if (argv.argc() >= 4 && strcmp(argv[2], "ifmax") == 0) {
@@ -5008,4 +5120,23 @@ CCMD(stam)
 		return;
 	}
 	Printf("Unknown STAM subcommand: %s. Use beamin|beamout.\n", argv[1]);
+}
+
+/*=============================================================================
+ * OASIS Portal / Teleport — incoming warp from another OGame
+ *===========================================================================*/
+
+void UZDoom_STAR_CheckIncomingTeleport(void)
+{
+	char map[256];
+	float x = 0, y = 0, z = 64;
+	if (!ogengine_poll_teleport_request(map, sizeof(map), &x, &y, &z))
+		return;
+	oglib_log(OGLIB_LOG_INFO, "OASIS Teleport arrive: map=%s pos=%.0f/%.0f/%.0f", map, x, y, z);
+	{
+		AActor *mo = players[consoleplayer].mo;
+		if (mo)
+			P_TeleportMove(mo, DVector3(x, y, z), false);
+	}
+	ogengine_confirm_teleport_arrival();
 }

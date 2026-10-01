@@ -1,4 +1,4 @@
-﻿if(NOT OASIS_STAR_SYNC_IN_CLIENT)
+if(NOT OASIS_STAR_SYNC_IN_CLIENT)
   set(STAR_SYNC_SRC ogengine_sync.c)
 else()
   set(STAR_SYNC_SRC "")
