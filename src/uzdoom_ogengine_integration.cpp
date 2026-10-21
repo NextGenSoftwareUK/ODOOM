@@ -55,6 +55,7 @@ extern "C" void ogengine_sync_inventory_deliver_result(ogengine_item_list_t* lis
 #include "printf.h"
 #include "i_time.h"
 #include "g_levellocals.h"
+#include "i_interface.h"
 #include "playsim/d_player.h"
 #include "gi.h"
 #include "gametype.h"
@@ -1376,7 +1377,7 @@ static void ODOOM_UpdateStarKeyHudCVars(const ogengine_item_list_t* list) {
 		FBaseCVar* xpVar = FindCVar("odoom_star_avatar_xp", nullptr);
 		if (xpVar && xpVar->GetRealType() == CVAR_Int) { UCVarValue u; u.Int = xp; xpVar->SetGenericRep(u, CVAR_Int); }
 	}
-	long karma = 0;
+	int64_t karma = 0;
 	if (ogengine_get_avatar_karma(&karma))
 	{
 		FBaseCVar* karmaVar = FindCVar("odoom_star_avatar_karma", nullptr);
@@ -2427,9 +2428,56 @@ static bool ODOOM_AnyStarPopupOpenForHudToggle(void);
 static void ODOOM_FlipHudIntCVarImpl(const char* cvarName);
 static void ODOOM_FlipHudIntCVar(const char* cvarName);
 
+
+/*=============================================================================
+ * OASIS Omniverse Hub — protocol lives in ogengine_hub_frame (OGEngineClient);
+ * this only applies its decisions to the engine. See Docs/OMNIVERSE_HUB_IPC.md.
+ *===========================================================================*/
+
+static std::string g_hub_pending_map;
+static float g_hub_pending_x = 0, g_hub_pending_y = 0, g_hub_pending_z = 0;
+static bool g_hub_pending_spawn = false;
+
+static void ODOOM_HubApplyPendingSpawn(void) {
+	if (!g_hub_pending_spawn) return;
+	FLevelLocals* level = primaryLevel;
+	AActor* mo = players[consoleplayer].mo;
+	if (!level || !mo) return;
+	if (!g_hub_pending_map.empty() && strcasecmp(level->MapName.GetChars(), g_hub_pending_map.c_str()) != 0) return;
+	if (g_hub_pending_x != 0 || g_hub_pending_y != 0 || g_hub_pending_z != 0)
+		P_TeleportMove(mo, DVector3(g_hub_pending_x, g_hub_pending_y, g_hub_pending_z), false);
+	g_hub_pending_spawn = false;
+	g_hub_pending_map.clear();
+}
+
+static void ODOOM_HubBridgeFrame(void) {
+	ODOOM_HubApplyPendingSpawn();
+	if (!g_star_initialized) return;
+
+	FLevelLocals* level = primaryLevel;
+	ogengine_hub_frame_t hub;
+	if (!ogengine_hub_frame("ODOOM", level ? level->MapName.GetChars() : "", paused ? 1 : 0, &hub)) return;
+
+	if ((hub.pause_change > 0 && !paused) || (hub.pause_change < 0 && paused))
+		C_DoCommand("pause");
+
+	if (hub.has_arrive) {
+		g_hub_pending_x = hub.x; g_hub_pending_y = hub.y; g_hub_pending_z = hub.z;
+		g_hub_pending_spawn = true;
+		g_hub_pending_map = hub.arrive_map;
+		if (hub.arrive_map[0]) {
+			std::string cmd = std::string("map ") + hub.arrive_map;
+			C_DoCommand(cmd.c_str());
+		}
+		StarLogInfo("Hub arrive: map=%s pos=%.0f/%.0f/%.0f", hub.arrive_map[0] ? hub.arrive_map : "(current)", hub.x, hub.y, hub.z);
+	}
+}
+
 /** Called every frame from the main loop (see patch_uzdoom_engine.ps1: d_main and g_game). Must run so send/auth/inventory callbacks are invoked. */
 void ODOOM_InventoryInputCaptureFrame(void)
 {
+	ODOOM_HubBridgeFrame();
+
 	/* Deferred health/armor is applied in ODOOM_PostTic (after the tic) so the HUD is not overwritten. */
 
 	/* Decrement toast frame counters so ZScript shows messages for their duration. */
